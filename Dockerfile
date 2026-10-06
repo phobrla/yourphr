@@ -17,6 +17,8 @@ WORKDIR /build/frontend
 COPY frontend/package.json frontend/yarn.lock ./
 RUN yarn install --frozen-lockfile --network-timeout 600000
 COPY frontend ./
+COPY src/patient-entry/visit-terminology.json /build/src/patient-entry/visit-terminology.json
+COPY src/config/terminology-files.json /build/src/config/terminology-files.json
 # Writes to /build/dist/web — one dist/, all TypeScript, and the Angular build CLEARS its output
 # directory, which is why the two halves have their own subdirectories.
 #

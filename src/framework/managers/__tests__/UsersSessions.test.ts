@@ -47,6 +47,29 @@ async function boot(factors: string[] = ['password'], providers: BaseAuthProvide
 }
 beforeEach(async () => { await boot(); });
 
+describe('UsersManager — personal terminology files', () => {
+  it('validates all mapping keys and isolates them by authenticated caller', async () => {
+    await users.createUser(sys, 'alice', PW, 'user');
+    await users.createUser(sys, 'bob', PW, 'user');
+    const alice = ApiContext.from({username: 'alice', role: 'user'}, engine);
+    const bob = ApiContext.from({username: 'bob', role: 'user'}, engine);
+    const key = 'yourphr.terminology.loinc.table';
+    await users.setTerminologyFile(alice, key, ' /data/Loinc.csv ');
+    expect(await users.terminologyFiles(alice)).toEqual({[key]: '/data/Loinc.csv'});
+    expect(await users.terminologyFiles(bob)).toEqual({});
+    for (const value of ['relative.csv', 'https://example.org/catalog', '/data/a\nb', 123, '/data/' + 'a'.repeat(4096)]) {
+      await expect(users.setTerminologyFile(alice, key, value)).rejects.toMatchObject({status: 400});
+    }
+    await expect(users.setTerminologyFile(alice, 'unknown', '/data/file')).rejects.toMatchObject({status: 400});
+    const nobody = ApiContext.anonymous(engine);
+    await expect(users.terminologyFiles(nobody)).rejects.toThrow(ApiError);
+    await expect(users.setTerminologyFile(nobody, key, '/data/file')).rejects.toThrow(ApiError);
+    await users.setTerminologyFile(alice, key, '');
+    expect(await users.terminologyFiles(alice)).toEqual({});
+    expect(lines.join('\n')).not.toContain('/data/Loinc.csv');
+  });
+});
+
 describe('UsersManager — roles are configured NAMES, not two literals (yourphr#648)', () => {
   it('refuses a role this instance does not define, and names the ones it does', async () => {
     await expect(users.createUser(sys, 'nina', PW, 'wizard')).rejects.toMatchObject({ status: 400 });

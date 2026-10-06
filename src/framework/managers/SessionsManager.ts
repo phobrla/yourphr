@@ -92,7 +92,7 @@ export function clientIp(remoteAddr: string, xffHeader: string | undefined, trus
 }
 
 export interface SessionsOptions {
-  /** Per-process; a restart ends every session, which is the intended posture for a family box. */
+  /** Omit for a per-process key; provide a protected persistent key to preserve sessions across restarts. */
   sessionKey?: Buffer;
   session?: SessionPolicy;
   throttle?: ThrottlePolicy;

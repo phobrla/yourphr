@@ -32,6 +32,7 @@ test('the medical-history page shows the visit, by date and by provider', async 
   const errors = trackPageErrors(page);
   await login(page, E2E_USER, E2E_PASS);
   await page.goto(`${BASE}/medical-history`);
+  await page.getByRole('button', {name: /^2026-03-14\b/}).click();
   await expect(page.getByRole('heading', { name: 'Synthetic annual check-up' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('heading', { name: 'Mar 14, 2026' })).toBeVisible();
   // The last sync the source reports (the E2E server syncs on a fixed clock), never an invented date.
@@ -39,6 +40,7 @@ test('the medical-history page shows the visit, by date and by provider', async 
 
   await page.getByRole('button', { name: 'Provider' }).click();
   await expect(page.getByRole('button', { name: /Dr Linus Seeded/ })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: /Dr Linus Seeded/ }).click();
   await expect(page.getByRole('heading', { name: 'Synthetic annual check-up' })).toBeVisible();
   expect(errors).toEqual([]);
 });

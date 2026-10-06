@@ -3,7 +3,7 @@
     <div>
       <h6 class="card-title">{{displayModel?.display}}</h6>
       @if (displayModel?.period_start) {
-        <p class="card-text tx-gray-400"><strong>Start date</strong> {{$safeNavigationMigration(displayModel?.period_start) | date}}</p>
+        <p class="card-text tx-gray-400"><strong>{{ displayModel.period_start.includes('T') ? 'Start date/time' : 'Start date' }}</strong> {{$safeNavigationMigration(displayModel?.period_start) | date:(displayModel.period_start.includes('T') ? 'medium' : 'mediumDate')}}</p>
       }
     </div>
     <!--    <div class="btn-group">-->
@@ -14,6 +14,103 @@
 </div>
 <div #collapse="ngbCollapse" [(ngbCollapse)]="isCollapsed" class="card-body">
   <fhir-ui-table [displayModel]="displayModel" [tableData]="tableData"></fhir-ui-table>
+  @if (displayModel?.billingCodes?.length) {
+    <section aria-label="Visit billing codes">
+      <h6>UB-04 billing codes</h6>
+      @for (entry of displayModel.billingCodes; track $index) { <p>{{ entry.kind }}: {{ entry.code }} {{ entry.description }}</p> }
+      <p class="text-muted">Patient-transcribed billing annotations; not a submitted claim or verified code assignment.</p>
+    </section>
+  }
+  @if (displayModel?.measurements?.length) {
+    <section aria-label="Visit measurements">
+      <h6>Measurements and screenings</h6>
+      <div class="table-responsive">
+        <table class="table">
+          <thead><tr><th scope="col">Measurement</th><th scope="col">Value</th><th scope="col">Measurement date</th><th scope="col">Details</th></tr></thead>
+          <tbody>
+            @for (measurement of displayModel.measurements; track $index) {
+              <tr>
+                <th scope="row">{{ measurement.label }} @if (measurement.code) { <small class="text-muted">LOINC {{ measurement.code }}</small> }</th>
+                <td>{{ measurement.value }}</td>
+                <td>{{ measurement.measuredAt ? (measurement.measuredAt | date) : 'Not recorded' }}</td>
+                <td>
+                  @for (note of measurement.notes; track $index) { <p class="mb-1">{{ note }}</p> }
+                  @if (measurement.needsReview) { <span class="text-warning">Needs review</span> }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+  @if (displayModel?.narrative) {
+    <section aria-label="Visit note">
+      <h6>Note</h6>
+      @if (displayModel.noteAuthors.length || displayModel.noteAuthored) {
+        <p class="mb-1">
+          @if (displayModel.noteAuthors.length) { <strong>Attributed authors:</strong> {{ displayModel.noteAuthors.join('; ') }} }
+          @if (displayModel.noteAuthored) { <span class="mg-l-10"><strong>Authored:</strong> {{ displayModel.noteAuthored | date }}</span> }
+        </p>
+        <p class="text-muted">Patient-transcribed attribution; not a verified provider signature.</p>
+      }
+      <div class="visit-note" [innerHTML]="noteNarrative"></div>
+    </section>
+  }
+  @for (note of displayModel?.additionalNotes || []; track $index) {
+    <section [attr.aria-label]="'Additional visit note ' + ($index + 1)">
+      <h6>Additional note {{ $index + 1 }}</h6>
+      @if (note.authors.length) { <p class="mb-1"><strong>Attributed authors:</strong> {{ note.authors.join('; ') }}</p> }
+      @if (note.authored) { <p class="mb-1"><strong>Authored:</strong> {{ note.authored | date }}</p> }
+      @if (note.authors.length || note.authored) { <p class="text-muted">Patient-transcribed attribution; not a verified provider signature.</p> }
+      <div class="visit-note" [innerHTML]="safeNoteNarrative(note.narrative)"></div>
+    </section>
+  }
+  @if (displayModel?.labs?.length) {
+    <section aria-label="Visit laboratory results">
+      <h6>Laboratory results</h6>
+      <div class="table-responsive">
+        <table class="table">
+          <thead><tr><th scope="col">Test</th><th scope="col">Result</th><th scope="col">Dates / status</th><th scope="col">Details</th></tr></thead>
+          <tbody>
+            @for (lab of displayModel.labs; track $index) {
+              <tr>
+                <th scope="row">{{ lab.label }} @if (lab.code) { <small class="text-muted">LOINC {{ lab.code }}</small> }</th>
+                <td>{{ lab.value }}</td>
+                <td>
+                  <p class="mb-1">Status: {{ lab.status || 'Not recorded' }}</p>
+                  <p class="mb-1">Collected: {{ lab.collected ? (lab.collected | date) : 'Not recorded' }}</p>
+                  <p class="mb-1">Reported: {{ lab.issued ? (lab.issued | date:'medium') : 'Not recorded' }}</p>
+                </td>
+                <td>
+                  @if (lab.specimen) { <p class="mb-1">Specimen: {{ lab.specimen }}</p> }
+                  @for (laboratory of lab.laboratory; track $index) { <p class="mb-1">Laboratory: {{ laboratory }}</p> }
+                  @for (range of lab.referenceRange; track $index) { <p class="mb-1">Reference range: {{ range }}</p> }
+                  @for (note of lab.notes; track $index) { <p class="mb-1">{{ note }}</p> }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+  @if (displayModel?.diagnoses?.length) {
+    <section aria-label="Encounter diagnoses">
+      <h6>Encounter diagnoses</h6>
+      <ul>
+        @for (diagnosis of displayModel.diagnoses; track $index) {
+          <li>
+            {{ diagnosis.display }}
+            @for (code of diagnosis.codes; track code) { <span class="mg-l-10">{{ code }}</span> }
+            @if (diagnosis.expectedEndDate) {
+              <span class="mg-l-10">Expected end date: {{ diagnosis.expectedEndDate }} (estimated)</span>
+            }
+          </li>
+        }
+      </ul>
+    </section>
+  }
   @if (isEditable) {
     <div class="action-buttons">
       <button type="button" (click)="onEditClicked()" class="btn btn-az-primary">Edit</button>

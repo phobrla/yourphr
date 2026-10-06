@@ -28,6 +28,12 @@ export class SqliteUsersProvider extends BaseUsersProvider {
       user_id TEXT PRIMARY KEY,
       accepted_at TEXT NOT NULL DEFAULT ''
     )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS account_terminology_files (
+      username TEXT NOT NULL REFERENCES auth_users(username) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      path TEXT NOT NULL,
+      PRIMARY KEY (username, key)
+    )`);
   }
 
   async initialize(): Promise<void> { /* the schema is ensured in the constructor, before any migration-dependent caller */ }
@@ -69,7 +75,10 @@ export class SqliteUsersProvider extends BaseUsersProvider {
   }
 
   async delete(username: string): Promise<boolean> {
-    return this.db.prepare('DELETE FROM auth_users WHERE username = ?').run(username).changes > 0;
+    return this.db.transaction(() => {
+      this.db.prepare('DELETE FROM account_terminology_files WHERE username = ?').run(username);
+      return this.db.prepare('DELETE FROM auth_users WHERE username = ?').run(username).changes > 0;
+    })();
   }
 
   async setEmail(username: string, email: string): Promise<boolean> {
@@ -85,5 +94,20 @@ export class SqliteUsersProvider extends BaseUsersProvider {
     this.db
       .prepare('INSERT INTO legal_consent (user_id, accepted_at) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET accepted_at = excluded.accepted_at')
       .run(username, acceptedAt);
+  }
+
+  async terminologyFiles(username: string): Promise<Record<string, string>> {
+    const rows = this.db.prepare('SELECT key, path FROM account_terminology_files WHERE username = ?')
+      .all(username) as {key: string; path: string}[];
+    return Object.fromEntries(rows.map(row => [row.key, row.path]));
+  }
+
+  async setTerminologyFile(username: string, key: string, path: string): Promise<void> {
+    if (path === '') {
+      this.db.prepare('DELETE FROM account_terminology_files WHERE username = ? AND key = ?').run(username, key);
+    } else {
+      this.db.prepare('INSERT INTO account_terminology_files (username, key, path) VALUES (?, ?, ?) ON CONFLICT(username, key) DO UPDATE SET path = excluded.path')
+        .run(username, key, path);
+    }
   }
 }

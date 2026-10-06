@@ -1,6 +1,7 @@
-import {ChangeDetectorRef, Component, EventEmitter, Input, OnInit, Output, ChangeDetectionStrategy} from '@angular/core';
+import {ChangeDetectorRef, Component, EventEmitter, Inject, Input, OnInit, Output, ChangeDetectionStrategy, SecurityContext} from '@angular/core';
 import {NgbCollapseModule} from '@ng-bootstrap/ng-bootstrap';
-import {CommonModule} from '@angular/common';
+import {CommonModule, DOCUMENT} from '@angular/common';
+import {DomSanitizer} from '@angular/platform-browser';
 import {BadgeComponent} from '../../common/badge/badge.component';
 import {TableComponent} from '../../common/table/table.component';
 import {GlossaryLookupComponent} from '../../../glossary-lookup/glossary-lookup.component';
@@ -32,7 +33,33 @@ export class EncounterComponent implements OnInit, FhirCardEditableComponentInte
 
   tableData: TableRowItem[] = []
 
-  constructor(public changeRef: ChangeDetectorRef, public router: Router) { }
+  private lastNarrative: string | undefined;
+  private renderedNarrative = '';
+  private noteCache = new Map<string, string>();
+
+  constructor(public changeRef: ChangeDetectorRef, public router: Router,
+    @Inject(DOCUMENT) private document: Document, private sanitizer: DomSanitizer) { }
+
+  get noteNarrative(): string {
+    const narrative = this.displayModel?.narrative;
+    if (narrative === this.lastNarrative) return this.renderedNarrative;
+    this.lastNarrative = narrative;
+    this.renderedNarrative = this.safeNoteNarrative(narrative ?? '');
+    return this.renderedNarrative;
+  }
+
+  safeNoteNarrative(narrative: string): string {
+    const cached = this.noteCache.get(narrative);
+    if (cached !== undefined) return cached;
+    const template = this.document.createElement('template');
+    template.innerHTML = this.sanitizer.sanitize(SecurityContext.HTML, narrative) ?? '';
+    // Imported narratives can carry remote media; never load those while opening a patient's note.
+    template.content.querySelectorAll('img, video, audio, source').forEach((element) => {
+      element.replaceWith(this.document.createTextNode(element.getAttribute('alt') || '[Embedded media omitted]'));
+    });
+    this.noteCache.set(narrative, template.innerHTML);
+    return template.innerHTML;
+  }
 
   ngOnInit(): void {
     // US Core Encounter Must-Support: type, class, status, period, participant, reasonCode,
@@ -78,11 +105,16 @@ export class EncounterComponent implements OnInit, FhirCardEditableComponentInte
         data: this.displayModel?.resource_status,
         enabled: !!this.displayModel?.resource_status,
       },
-      {
-        label: 'Reason',
-        data: this.displayModel?.reasonCode?.[0],
+      ...(this.displayModel?.reasonCode ?? []).map((reason, index) => ({
+        label: index === 0 ? 'Reason' : `Reason ${index + 1}`,
+        data: reason,
         data_type: TableRowItemDataType.CodableConcept,
-        enabled: !!this.displayModel?.reasonCode?.[0],
+        enabled: true,
+      })),
+      {
+        label: 'Primary chief complaint',
+        data: this.displayModel?.chiefComplaint,
+        enabled: !!this.displayModel?.chiefComplaint,
       },
       {
         label: 'Participants',
@@ -101,7 +133,7 @@ export class EncounterComponent implements OnInit, FhirCardEditableComponentInte
         enabled: !!this.displayModel?.location_display,
       },
       {
-        label: 'End date',
+        label: this.displayModel?.period_end?.includes('T') ? 'End date/time' : 'End date',
         data: this.displayModel?.period_end,
         enabled: !!this.displayModel?.period_end,
       },

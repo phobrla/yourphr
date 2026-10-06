@@ -199,6 +199,7 @@ export function typeLabel(resourceType: string): string {
     case 'Medication': return 'Medications';
     case 'Procedure': return 'Procedures';
     case 'Immunization': return 'Immunizations';
+    case 'Device': return 'Implants';
     case 'DocumentReference': return 'Documents';
     case 'Condition': return 'Conditions';
     case 'AllergyIntolerance': return 'Allergies';

@@ -67,11 +67,13 @@ describe('buildTypedRows', () => {
       Encounter: [res('Encounter', 'e1', '2025-11-02T10:00:00Z')],
       DiagnosticReport: [res('DiagnosticReport', 'd1', '2025-08-14T00:00:00Z')],
       MedicationRequest: [res('MedicationRequest', 'm1')],
+      Device: [res('Device', 'device1')],
     };
     const {rows, lookup} = buildTypedRows(byType);
-    expect(rows.length).toBe(3);
+    expect(rows.length).toBe(4);
     expect(rows.find((r) => r.resourceType === 'Encounter')?.date).toBe('2025-11-02');
     expect(rows.find((r) => r.resourceType === 'MedicationRequest')?.date).toBeUndefined(); // no date stated
+    expect(rows.find((r) => r.resourceType === 'Device')?.resourceId).toBe('device1');
     const enc = rows.find((r) => r.resourceType === 'Encounter')!;
     expect(lookup[rowKey(enc)].source_resource_id).toBe('e1');
   });

@@ -18,6 +18,8 @@ import { isEmailAddress } from '../email-address.js';
 import { type BaseUsersProvider, normaliseRole, type Role, type UserRecord } from '../providers/BaseUsersProvider.js';
 import type { BaseAuthProvider } from '../providers/BaseAuthProvider.js';
 import { isLegacyBcrypt } from '../providers/PasswordAuthProvider.js';
+import terminologyFiles from '../../config/terminology-files.json' with {type: 'json'};
+import {terminologyPath} from '../../config/terminology-path.js';
 
 declare module '../Engine.js' {
   interface ManagerRegistry {
@@ -244,6 +246,21 @@ export class UsersManager extends BaseManager {
   }
 
   // --- legal consent (folded in: one small table, one owner) ---
+
+  async terminologyFiles(ctx: ApiContext): Promise<Record<string, string>> {
+    ctx.requireAuthenticated();
+    return this.provider.terminologyFiles(ctx.username);
+  }
+
+  async setTerminologyFile(ctx: ApiContext, key: unknown, value: unknown): Promise<void> {
+    ctx.requireAuthenticated();
+    if (typeof key !== 'string' || !terminologyFiles.some(file => file.key === key)) {
+      throw new ApiError(400, 'Unknown terminology file mapping');
+    }
+    const path = terminologyPath(value);
+    await this.provider.setTerminologyFile(ctx.username, key, path);
+    this.log(`${ctx.actor} updated an account terminology file mapping`);
+  }
 
   consentAcceptedAt(ctx: ApiContext): Promise<string> {
     ctx.requireAuthenticated();

@@ -311,6 +311,16 @@ export class FastenApiService {
       .pipe(map((response: ResponseWrapper) => response.data as AdminConfig));
   }
 
+  getAccountTerminologyFiles(): Observable<Record<string, string>> {
+    return this._httpClient.get<{data: Record<string, string>}>(`${GetEndpointAbsolutePath(globalThis.location, environment.fasten_api_endpoint_base)}/secure/account/terminology-files`)
+      .pipe(map(response => response.data));
+  }
+
+  setAccountTerminologyFile(key: string, value: string): Observable<boolean> {
+    return this._httpClient.put<{success: boolean}>(`${GetEndpointAbsolutePath(globalThis.location, environment.fasten_api_endpoint_base)}/secure/account/terminology-files`, {key, value})
+      .pipe(map(response => response.success));
+  }
+
   // Fetch the real value of ONE key. Deliberately one at a time: this is the request that puts a
   // secret on the wire, and the backend logs each one.
   revealAdminConfigValue(key: string): Observable<RevealedConfigValue> {
@@ -858,6 +868,46 @@ export class FastenApiService {
     device?: string
     device_name?: string
     effective_date_time?: string
+    visit_class?: string
+    visit_type?: string
+    visit_type_code?: string
+    visit_reasons?: {text: string; code?: string; primary?: boolean}[]
+    visit_observations?: {
+      kind: string; value?: number; systolic?: number; diastolic?: number;
+      unit?: string; date?: string; measured_at?: string; note?: string;
+    }[]
+    visit_labs?: {
+      code: string; display: string; result_type: 'quantity' | 'text'; value?: number; text?: string;
+      unit?: string; ucum_code?: string; comparator?: '<' | '<=' | '>=' | '>';
+      status: 'preliminary' | 'final' | 'amended' | 'corrected' | 'unknown';
+      collected?: string; issued?: string; reference_range?: string; specimen?: string; laboratory?: string; note?: string;
+    }[]
+    visit_note_authors?: {name: string; provider_id?: string}[]
+    visit_note_authored?: string
+    visit_billing?: {kind: 'revenue' | 'type-of-bill'; code: string; description?: string}[]
+    visit_notes?: {note: string; note_format?: 'plain' | 'markdown'; authors?: {name: string; provider_id?: string}[]; authored?: string}[]
+    visit_status?: string
+    visit_identifier?: string
+    visit_end_date_time?: string
+    visit_location?: string
+    visit_location_code?: string
+    visit_disposition?: string
+    visit_disposition_code?: string
+    visit_diagnosis_ids?: string[]
+    visit_diagnoses?: {condition_id?: string; system?: string; code?: string; display?: string; expected_end_date?: string}[]
+    provider_id?: string
+    provider_name?: string
+    organization_id?: string
+    organization_name?: string
+    note?: string
+    note_format?: 'plain' | 'markdown'
+    implant_status?: string
+    implant_device_identifier?: string
+    implant_distinct_identifier?: string
+    implant_serial_number?: string
+    implant_lot_number?: string
+    implant_manufacture_date?: string
+    implant_expiration_date?: string
   }): Observable<{resource_type: string, source_resource_id: string, source_id: string, sort_title: string, needs_review?: string[]}> {
     return this._httpClient.post<any>(`${GetEndpointAbsolutePath(globalThis.location, environment.fasten_api_endpoint_base)}/secure/resource/patient-entry`, {
       kind: payload.kind || 'vital',

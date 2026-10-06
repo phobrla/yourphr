@@ -71,7 +71,7 @@ import { appLog, VALID_LEVELS } from './log/index.js';
 import { refreshRedactedSecrets } from './log/redact.js';
 import { createYourPhrServer, toResourceFhir } from './server.js';
 import { SqliteFhirRepository } from './SqliteFhirRepository.js';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 /**
  * The app-level registry. Module constructors keep their CREATE IF NOT EXISTS as idempotent
@@ -443,8 +443,9 @@ export async function openStores(dataDir: string, env: Record<string, string | u
   // 3. Accounts and sessions as managers over providers (yourphr#611): user storage in the app
   // database, passwords by the scrypt provider, the factor list from configuration.
   const users = new UsersManager(engineRef(), new SqliteUsersProvider(db), new PasswordAuthProvider(), { log: (line) => appLog.info(line) });
+  const sessionSecret = config.getString('yourphr.auth.session.key');
   const sessions = new SessionsManager(engineRef(), [new PasswordAuthProvider()], {
-    sessionKey: randomBytes(32),
+    sessionKey: sessionSecret === '' ? randomBytes(32) : createHmac('sha256', sessionSecret).update('yourphr-session-v1').digest(),
     session: { slidingSeconds: config.getInt('yourphr.auth.session.sliding-seconds'), absoluteSeconds: config.getInt('yourphr.auth.session.absolute-seconds') },
     throttle: { maxFailures: config.getInt('yourphr.auth.throttle.max-failures'), windowSeconds: config.getInt('yourphr.auth.throttle.window-seconds') },
     trustedProxies: config.getStringList('yourphr.auth.trusted-proxies'),

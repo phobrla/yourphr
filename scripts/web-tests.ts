@@ -25,6 +25,7 @@ async function main(): Promise<void> {
   mkdirSync(join(webDir, 'assets'), { recursive: true });
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>YourPHR</title><app-root></app-root>');
   writeFileSync(join(webDir, 'main.a1b2c3.js'), 'console.log("angular bundle")');
+  writeFileSync(join(webDir, 'main.js'), 'console.log("development bundle")');
   writeFileSync(join(webDir, 'assets', 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   writeFileSync(join(dir, 'outside-secret.txt'), 'never served');
 
@@ -44,6 +45,9 @@ async function main(): Promise<void> {
   check('a hashed bundle serves with its type and immutable caching',
     bundle.status === 200 && (bundle.headers.get('content-type') ?? '').includes('javascript') &&
     (bundle.headers.get('cache-control') ?? '').includes('immutable'));
+  const developmentBundle = await fetch(`${base}/main.js`);
+  check('unhashed development bundles revalidate after rebuilding',
+    developmentBundle.status === 200 && developmentBundle.headers.get('cache-control') === 'no-cache');
 
   const asset = await fetch(`${base}/assets/logo.svg`);
   check('nested assets serve with their type', asset.status === 200 && (asset.headers.get('content-type') ?? '').includes('svg'));

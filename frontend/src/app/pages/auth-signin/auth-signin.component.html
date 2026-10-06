@@ -52,15 +52,15 @@
       }
 
       @if (!showExternalIdP) {
-        <form  (ngSubmit)="signinSubmit()" #userForm="ngForm">
+        <form autocomplete="on" (ngSubmit)="signinSubmit()" #userForm="ngForm">
           <div class="mb-3">
-            <label>Username</label>
+            <label for="signin-username">Username</label>
             <!-- SIGN-IN VALIDATES ONLY "did you type something" (#506). A length rule here refuses an
             account that predates the policy, or predates an operator raising it — locking someone
             out of their own records over a rule they cannot act on until they are inside. The
             server decides; this form just collects. (It also used to enforce 2 while telling the
             user 4, and reject usernames the server had happily created.) -->
-            <input [(ngModel)]="existingUser.username" name="username" #username="ngModel" required autocapitalize="none" type="text" class="form-control" placeholder="Enter your username">
+            <input id="signin-username" [(ngModel)]="existingUser.username" name="username" #username="ngModel" required autocomplete="username" autocapitalize="none" type="text" class="form-control" placeholder="Enter your username">
             @if (username.invalid && (username.dirty || username.touched)) {
               <div class="alert alert-danger">
                 @if (username.errors?.['required']) {
@@ -72,10 +72,10 @@
             }
           </div><!-- mb-3 -->
           <div class="mb-3">
-            <label>Password</label>
+            <label for="signin-password">Password</label>
             <!-- Same reasoning: the minlength here is what refused the published demo password after
             the signup API had accepted it (#505). You either know your password or you do not. -->
-            <input [(ngModel)]="existingUser.password" name="password" #password="ngModel" required type="password" class="form-control" placeholder="Enter your password">
+            <input id="signin-password" [(ngModel)]="existingUser.password" name="password" #password="ngModel" required autocomplete="current-password" type="password" class="form-control" placeholder="Enter your password">
             @if (password.invalid && (password.dirty || password.touched)) {
               <div class="alert alert-danger">
                 @if (password.errors?.['required']) {

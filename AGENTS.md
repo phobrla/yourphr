@@ -145,6 +145,12 @@ make test-relay        # the one Go thing left
 make serve-storybook   # component dev/test in isolation
 ```
 
+When frontend source changes need to appear in the app served by the local compiled server, run the
+VS Code build task __Build frontend for local app__ after the edits. It rebuilds `dist/web`, which the
+server serves as static files; reload the app after the task succeeds. The task is the default build
+task (`Cmd+Shift+B` on macOS). The `make serve-frontend` HMR server is an alternative during active
+UI work and does not use this compiled-bundle path.
+
 __The server's own suites are npm scripts__, and CI runs them one job per script — see
 `.github/workflows/server-ci.yaml` for the authoritative list.
 

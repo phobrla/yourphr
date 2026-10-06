@@ -5,6 +5,33 @@ import {ReferenceModel} from '../datatypes/reference-model';
 import {CodingModel} from '../datatypes/coding-model';
 import {FastenDisplayModel} from '../fasten/fasten-display-model';
 import {FastenOptions} from '../fasten/fasten-options';
+import visitTerminology from '../../../../../src/patient-entry/visit-terminology.json';
+
+interface DiagnosisResource {
+  id?: string;
+  resourceType?: string;
+  code?: {text?: string; coding?: {system?: string; code?: string; display?: string}[]};
+  valueString?: string;
+  valueDateTime?: string;
+  valueQuantity?: {value?: number; unit?: string; code?: string; comparator?: string};
+  component?: {code?: {text?: string; coding?: {display?: string}[]}; valueQuantity?: {value?: number; unit?: string}}[];
+  effectiveDateTime?: string;
+  note?: {text?: string}[];
+  meta?: {tag?: {code?: string}[]};
+  status?: string;
+  issued?: string;
+  specimen?: {reference?: string; display?: string};
+  performer?: {display?: string}[];
+  referenceRange?: {text?: string}[];
+  author?: {display?: string}[];
+  content?: {attachment?: {creation?: string}}[];
+  text?: {div?: string};
+}
+
+interface EncounterDiagnosis {
+  condition?: {reference?: string; display?: string};
+  extension?: {url?: string; valueDate?: string}[];
+}
 
 // The standard code systems for Encounter.class (HL7 v3 ActCode / ActEncounterCode). A class coding in
 // any OTHER system is a vendor-LOCAL code (e.g. Epic's "HOV" under its 1.2.840.114350.* OID) — cryptic
@@ -41,6 +68,16 @@ export class EncounterModel extends FastenDisplayModel {
   }[] | undefined
 
   reasonCode: CodableConceptModel[] | undefined
+  chiefComplaint: string | undefined
+  measurements: {label: string; value: string; code?: string; measuredAt?: string; notes: string[]; needsReview: boolean}[] = []
+  diagnoses: {display: string; codes: string[]; expectedEndDate?: string}[] = []
+  narrative: string | undefined
+  noteAuthors: string[] = []
+  noteAuthored: string | undefined
+  additionalNotes: {authors: string[]; authored?: string; narrative: string}[] = []
+  billingCodes: {kind: string; code: string; description: string}[] = []
+  labs: {label: string; code?: string; value: string; status?: string; collected?: string; issued?: string;
+    specimen?: string; laboratory: string[]; referenceRange: string[]; notes: string[]}[] = []
 
   constructor(fhirResource: any, fhirVersion?: fhirVersions, fastenOptions?: FastenOptions) {
     super(fastenOptions)
@@ -49,6 +86,7 @@ export class EncounterModel extends FastenDisplayModel {
   }
 
   commonDTO(fhirResource:any){
+    this.narrative = typeof fhirResource?.text?.div === 'string' ? fhirResource.text.div : undefined;
     this.code = _.get(fhirResource, 'serviceType') || _.get(fhirResource, 'type.0');
     this.resource_status = _.get(fhirResource, 'status');
     this.location_display = _.get(fhirResource, 'location[0].location.display');
@@ -112,6 +150,84 @@ export class EncounterModel extends FastenDisplayModel {
   r4DTO(fhirResource:any){
     this.period_end = _.get(fhirResource, 'period.end');
     this.period_start = _.get(fhirResource, 'period.start');
+    const diagnoses: EncounterDiagnosis[] = Array.isArray(fhirResource.diagnosis) ? fhirResource.diagnosis : [];
+    const contained: DiagnosisResource[] = Array.isArray(fhirResource.contained) ? fhirResource.contained : [];
+    const reasonReferences: {reference?: string}[] = Array.isArray(fhirResource.reasonReference) ? fhirResource.reasonReference : [];
+    this.chiefComplaint = contained.find((item) => item.resourceType === 'Observation'
+      && reasonReferences.some((reference) => reference.reference === `#${item.id}`)
+      && item.code?.coding?.some((coding) => coding.system === visitTerminology.reason.chiefComplaintSystem
+        && coding.code === visitTerminology.reason.chiefComplaintCode))?.valueString;
+    const measurementReferences: {url?: string; valueReference?: {reference?: string}}[] =
+      Array.isArray(fhirResource.extension) ? fhirResource.extension : [];
+    const billingExtensions: {url?: string; valueCoding?: {system?: string; code?: string; display?: string}}[] =
+      Array.isArray(fhirResource.extension) ? fhirResource.extension : [];
+    this.billingCodes = billingExtensions.filter(entry => entry.url === visitTerminology.billing.extension
+      && entry.valueCoding?.code).map(entry => ({
+        kind: entry.valueCoding?.system === visitTerminology.billing.systems.revenue ? 'Revenue'
+          : entry.valueCoding?.system === visitTerminology.billing.systems['type-of-bill'] ? 'Type of bill' : 'Billing code',
+        code: entry.valueCoding?.code || '', description: entry.valueCoding?.display || '',
+      }));
+    const noteDocuments = contained.filter(item => item.resourceType === 'DocumentReference'
+      && measurementReferences.some(extension => extension.url === visitTerminology.note.extension
+        && extension.valueReference?.reference === `#${item.id}`));
+    this.noteAuthors = (noteDocuments[0]?.author ?? []).flatMap(author => author.display ? [author.display] : []);
+    this.noteAuthored = noteDocuments[0]?.content?.[0]?.attachment?.creation;
+    // Legacy visits have only Encounter narrative; newer notes each carry a document narrative.
+    if (!this.narrative && noteDocuments[0]?.text?.div) this.narrative = noteDocuments[0].text.div;
+    this.additionalNotes = noteDocuments.slice(1).map(note => ({
+      authors: (note.author ?? []).flatMap(author => author.display ? [author.display] : []),
+      authored: note.content?.[0]?.attachment?.creation,
+      narrative: note.text?.div ?? '',
+    }));
+    this.labs = contained.filter(item => item.resourceType === 'Observation'
+      && measurementReferences.some(extension => extension.url === visitTerminology.labs.extension
+        && extension.valueReference?.reference === `#${item.id}`)).map(item => ({
+      label: item.code?.text || item.code?.coding?.[0]?.display || 'Lab result',
+      code: item.code?.coding?.find(coding => coding.system === 'http://loinc.org')?.code,
+      value: item.valueQuantity?.value !== undefined
+        ? `${item.valueQuantity.comparator || ''}${item.valueQuantity.value} ${item.valueQuantity.unit || item.valueQuantity.code || ''}`.trim()
+        : item.valueString || 'Not recorded',
+      status: item.status,
+      collected: item.effectiveDateTime,
+      issued: item.issued,
+      specimen: item.specimen?.display,
+      laboratory: (item.performer ?? []).flatMap(performer => performer.display ? [performer.display] : []),
+      referenceRange: (item.referenceRange ?? []).flatMap(range => range.text ? [range.text] : []),
+      notes: (item.note ?? []).flatMap(note => note.text ? [note.text] : []),
+    }));
+    this.measurements = contained.filter((item) => item.resourceType === 'Observation'
+      && measurementReferences.some((extension) => extension.url === visitTerminology.observations.extension
+        && extension.valueReference?.reference === `#${item.id}`)).map((item) => {
+      const quantity = item.valueQuantity;
+      const value = item.valueDateTime || (quantity?.value !== undefined
+        ? `${quantity.value} ${quantity.unit || quantity.code || ''}`.trim()
+        : (item.component ?? []).filter((component) => component.valueQuantity?.value !== undefined)
+          .map((component) => `${component.code?.text || component.code?.coding?.[0]?.display || 'Component'}: ${component.valueQuantity?.value} ${component.valueQuantity?.unit || ''}`.trim()).join('; '));
+      return {
+        label: item.code?.text || item.code?.coding?.find((coding) => coding.display)?.display || 'Measurement',
+        value: value || 'Not recorded',
+        code: item.code?.coding?.find((coding) => coding.system === 'http://loinc.org')?.code,
+        measuredAt: item.effectiveDateTime,
+        notes: (item.note ?? []).flatMap((note) => note.text ? [note.text] : []),
+        needsReview: item.meta?.tag?.some((tag) => tag.code === 'needs-review') ?? false,
+      };
+    });
+    this.diagnoses = diagnoses.map((diagnosis) => {
+      const reference = diagnosis.condition?.reference;
+      const condition = reference?.startsWith('#')
+        ? contained.find((resource) => resource.id === reference.slice(1) && resource.resourceType === 'Condition') : undefined;
+      const codings = condition?.code?.coding ?? [];
+      return {
+        display: condition?.code?.text || codings.find((coding) => coding.display)?.display
+          || diagnosis.condition?.display || reference || 'Diagnosis',
+        codes: codings.filter((coding) => coding.code).map((coding) => {
+          const system = visitTerminology.diagnosis.systems.find((system) => system.system === coding.system)?.label;
+          return [system || coding.system, coding.code].filter(Boolean).join(' ');
+        }),
+        expectedEndDate: diagnosis.extension?.find((extension) =>
+          extension.url === visitTerminology.diagnosis.expectedEndDateExtension)?.valueDate,
+      };
+    });
 
     // Only surface a "Class" value when it's a recognized standard ActCode (AMB/IMP/EMER/…). A
     // vendor-LOCAL class code (e.g. Epic "HOV") is cryptic and the Type row + title already convey the

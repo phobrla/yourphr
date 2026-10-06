@@ -2,6 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <base href="/">
+  <script>
+    var webPrefix = window.location.pathname.match(/^(.*?)\/web(?:\/|$)/);
+    if (webPrefix) {
+      document.querySelector('base').setAttribute('href', webPrefix[1] + '/web/');
+    }
+  </script>
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1, shrink-to-fit=no"
@@ -18,21 +25,6 @@
   <title>YourPHR</title>
   <!--     Fonts and icons     -->
   <script src="./assets/js/asmcrypto-2.3.2.all.es5.min.js"></script>
-  <script>
-    var baseHref = "/"
-
-    // if the pathname includes /web, everthing before `/web` (and including web) should be set as the base path.
-    if(window.location.pathname.includes('/web')){
-      baseHref = "/web/"
-      // probably running locally, and *may* include a subpath
-      var subPath = window.location.pathname.split('/web').slice(0, 1)[0]
-      if(subPath != "/"){
-        //subpath, so we need to update the absolutePath with the subpath before adding the relative path to the end
-        baseHref = subPath + '/web/'
-      }
-    }
-
-    document.write(`<base href="${baseHref}"/>`);  </script>
 
 
   <!-- wails -- this file is required in Desktop -->

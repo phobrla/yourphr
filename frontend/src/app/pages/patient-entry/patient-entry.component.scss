@@ -1,0 +1,73 @@
+.visit-section-heading {
+  margin: 12px 0 20px;
+
+  h5 {
+    margin-bottom: 6px;
+    font-size: 16px;
+  }
+}
+
+.visit-details {
+  margin: 4px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bs-border-color, #dee2e6);
+
+  summary {
+    cursor: pointer;
+    padding: 4px 0;
+    font-weight: 500;
+  }
+}
+
+.visit-clinical-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.visit-summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+
+  h6 {
+    font-size: 14px;
+  }
+
+  ul {
+    max-height: 180px;
+    overflow-y: auto;
+  }
+}
+
+.visit-summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.visit-notes-summary {
+  grid-column: 1 / -1;
+}
+
+.visit-save-actions {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--bs-border-color, #dee2e6);
+}
+
+@media (max-width: 767px) {
+  .visit-clinical-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .visit-summary {
+    padding: 16px;
+  }
+}

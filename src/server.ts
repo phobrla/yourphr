@@ -33,7 +33,8 @@ import {RecordsManager} from './app/managers/RecordsManager.js';
 import {SimpleRateLimiter} from './http/rate-limit.js';
 import {clientIp} from './framework/managers/SessionsManager.js';
 import {SqliteRecordsProvider} from './app/providers/SqliteRecordsProvider.js';
-import {PatientEntryError, buildPatientRecord, type PatientEntryRequest} from './patient-entry/index.js';
+import {PatientEntryError, buildPatientRecord, parseVisitDiagnoses, validateVisitDiagnosisIds, type PatientEntryRequest} from './patient-entry/index.js';
+import {parseVisitNotes} from './patient-entry/visit-clinical.js';
 import {backgroundJobShape} from './framework/managers/JobsManager.js';
 import {renderIpsHtml} from './ips/render.js';
 
@@ -269,8 +270,8 @@ function serveStatic(webDir: string, pathname: string, res: ServerResponse): voi
   const type = CONTENT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
   res.writeHead(200, {
     'Content-Type': type,
-    // index.html must revalidate (it names the hashed bundles); hashed assets may cache hard.
-    'Cache-Control': file.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+    // Only content-hashed filenames survive a rebuild unchanged.
+    'Cache-Control': /\.[a-f0-9]{6,}\.[^.]+$/i.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache',
   });
   createReadStream(file).pipe(res);
 }
@@ -814,6 +815,17 @@ export function createYourPhrServer(options: ServerOptions) {
         }
         if (url.pathname === '/api/secure/account/legal-consent' && req.method === 'GET') {
           send(res, 200, {success: true, data: consentStatus(await users.consentAcceptedAt(ctx))});
+          return;
+        }
+        if (url.pathname === '/api/secure/account/terminology-files' && req.method === 'GET') {
+          send(res, 200, {success: true, data: await users.terminologyFiles(ctx)});
+          return;
+        }
+        if (url.pathname === '/api/secure/account/terminology-files' && req.method === 'PUT') {
+          if (engine.has('demo')) engine.managers.demo.refuseWrite(ctx, 'setting terminology file mappings');
+          const body = await readJsonBody(req);
+          await users.setTerminologyFile(ctx, body?.['key'], body?.['value']);
+          send(res, 200, {success: true});
           return;
         }
         if (url.pathname === '/api/secure/account/legal-consent/grant' && req.method === 'POST') {
@@ -1599,10 +1611,81 @@ export function createYourPhrServer(options: ServerOptions) {
         // What measured it, when they said so (yourphr#764). Resolved before the record is built,
         // because a device id that is not theirs is a client mistake and must not become a record.
         const entry = body as PatientEntryRequest;
+        const isVisit = ['visit', 'encounter'].includes((entry.kind ?? '').trim().toLowerCase());
+        let visitNoteNarrative: string | undefined;
+        let additionalNoteNarratives: (string | undefined)[] = [];
+        if (isVisit) {
+          if (entry.note !== undefined && typeof entry.note !== 'string') {
+            throw new ApiError(400, 'Visit note must be text.');
+          }
+          if (entry.note_format !== undefined && !['plain', 'markdown'].includes(entry.note_format)) {
+            throw new ApiError(400, 'Choose a supported visit note format.');
+          }
+          const renderNote = async (text: string | undefined, format: string | undefined) => {
+            if (format !== 'markdown' || !text?.trim()) return undefined;
+            await engine.managers.filters.assertSavable(text);
+            const html = await engine.managers.filters.render(text);
+            if (/<img\b/i.test(html)) {
+              throw new ApiError(400, 'Images are not supported in visit notes. Use a text link instead so opening a note does not load external images.');
+            }
+            return `<div xmlns="http://www.w3.org/1999/xhtml">${html.replace(/<(br|hr)>/g, '<$1 />')}</div>`;
+          };
+          visitNoteNarrative = await renderNote(entry.note, entry.note_format);
+          try {
+            entry.visit_notes = parseVisitNotes(entry.visit_notes);
+          } catch (err) {
+            if (!(err instanceof PatientEntryError)) throw err;
+            throw new ApiError(400, err.message);
+          }
+          const authorLists = [entry.visit_note_authors, ...entry.visit_notes.map(note => note.authors)];
+          if (authorLists.some(authors => Array.isArray(authors) && authors.some(author => author?.provider_id !== undefined))) {
+            const providers = await engine.managers.records.list(ctx, 'Practitioner');
+            for (const authors of authorLists) {
+              if (authors === undefined) continue;
+              if (!Array.isArray(authors)) throw new ApiError(400, 'Choose valid note authors.');
+              for (const author of authors) {
+                if (!author || typeof author !== 'object') throw new ApiError(400, 'Choose valid note authors.');
+                if (author.provider_id === undefined) continue;
+                const provider = providers.find(row => row['source_resource_id'] === author.provider_id);
+                if (!provider) throw new ApiError(400, 'Choose a note author from your providers.');
+                if (typeof provider['sort_title'] !== 'string' || !provider['sort_title'].trim()) {
+                  throw new ApiError(400, 'The selected note provider has no name. Update it in your address book.');
+                }
+                author.name = provider['sort_title'];
+              }
+            }
+          }
+          additionalNoteNarratives = await Promise.all(entry.visit_notes.map(note => renderNote(note.note, note.note_format)));
+        }
+        const manual = await engine.managers.sources.manualSource(ctx);
+        const manualSourceId = `source-${manual.id}`;
+        if (['visit', 'encounter'].includes((entry.kind ?? '').trim().toLowerCase())) {
+          const conditions = await engine.managers.records.list(ctx, 'Condition', {sourceId: manualSourceId});
+          const ownConditionIds = new Set(
+            conditions
+              .map((condition) => condition['source_resource_id'])
+              .filter((id): id is string => typeof id === 'string'),
+          );
+          try {
+            entry.visit_diagnoses = parseVisitDiagnoses(entry.visit_diagnoses);
+            validateVisitDiagnosisIds(
+              entry.visit_diagnoses.flatMap((diagnosis) => diagnosis.condition_id ? [diagnosis.condition_id] : []),
+              ownConditionIds,
+            );
+            entry.visit_diagnosis_ids = validateVisitDiagnosisIds(
+              entry.visit_diagnosis_ids === undefined ? [] : entry.visit_diagnosis_ids,
+              ownConditionIds,
+            );
+          } catch (err) {
+            if (!(err instanceof PatientEntryError)) throw err;
+            send(res, 400, {success: false, error: err.message});
+            return;
+          }
+        }
         const device = await engine.managers.records.deviceReference(ctx, entry.device ?? '', entry.device_name ?? '');
         let built;
         try {
-          built = buildPatientRecord(entry, new Date(), {subject: self.reference, device});
+          built = buildPatientRecord(entry, new Date(), {subject: self.reference, device}, visitNoteNarrative, additionalNoteNarratives);
         } catch (err) {
           // The only refusal left: nothing was said at all.
           if (err instanceof PatientEntryError) {
@@ -1612,13 +1695,12 @@ export function createYourPhrServer(options: ServerOptions) {
           throw err;
         }
         const saved = await engine.managers.records.savePatientRecord(ctx, built.resource);
-        const manual = await engine.managers.sources.manualSource(ctx);
         send(res, 200, {
           success: true,
           data: {
             resource_type: built.resource.resourceType,
             source_resource_id: saved.id,
-            source_id: `source-${manual.id}`,
+            source_id: manualSourceId,
             sort_title: built.sortTitle,
             // What was kept but still needs a person: the form shows this instead of an error,
             // because the record was stored either way.

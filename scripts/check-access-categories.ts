@@ -38,6 +38,7 @@ const EXEMPT: Record<string, string> = {
   '/api/secure/lookups/npi': 'reference data — clinicians in the public NPI registry (yourphr#774), not a read of anyone\'s record',
   '/api/secure/account/devices': 'the caller\'s own connected-device permissions (yourphr#808) — a management surface device keys are barred from',
   '/api/secure/account/legal-consent': 'the caller\'s own consent status',
+  '/api/secure/account/terminology-files': 'the caller\'s own terminology file preferences, not medical records',
   '/api/secure/notifications': 'the caller\'s own notices (#793)',
   '/api/secure/instance': 'the instance\'s name and operator contact',
   '/api/secure/users': 'admin: account names and roles, no record content',

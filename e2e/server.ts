@@ -72,6 +72,14 @@ await app.engine.managers.records.savePatientRecord(ApiContext.system('e2e-seed'
   id: 'e2e-practitioner-1',
   name: [{ text: 'Dr Ada Handentered' }],
 } as never);
+const entryContext = ApiContext.system('e2e-seed', E2E_USER, app.engine);
+const selfPatient = await app.engine.managers.records.selfPatient(entryContext);
+await app.engine.managers.records.savePatientRecord(entryContext, {
+  resourceType: 'Condition',
+  id: 'e2e-linked-condition',
+  subject: {reference: selfPatient.reference},
+  code: {text: 'Synthetic linked diagnosis'},
+});
 // A practitioner with one encounter that names them (yourphr#690), so the practitioner's history
 // page has something to show — the empty state alone proves nothing about the page.
 await app.engine.managers.records.savePatientRecord(ApiContext.system('e2e-seed', E2E_USER, app.engine), {

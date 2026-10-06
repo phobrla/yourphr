@@ -30,7 +30,7 @@ export class FakeUsersProvider extends BaseUsersProvider {
     return true;
   }
   async bumpGeneration(username: string): Promise<void> { const r = this.rows.get(username); if (r) r.tokenGeneration++; }
-  async delete(username: string): Promise<boolean> { return this.rows.delete(username); }
+  async delete(username: string): Promise<boolean> { this.files.delete(username); return this.rows.delete(username); }
   async setEmail(username: string, email: string): Promise<boolean> {
     const r = this.rows.get(username);
     if (!r) return false;
@@ -40,4 +40,12 @@ export class FakeUsersProvider extends BaseUsersProvider {
   readonly consent = new Map<string, string>();
   async consentAcceptedAt(username: string): Promise<string> { return this.consent.get(username) ?? ''; }
   async setConsentAcceptedAt(username: string, acceptedAt: string): Promise<void> { this.consent.set(username, acceptedAt); }
+  readonly files = new Map<string, Record<string, string>>();
+  async terminologyFiles(username: string): Promise<Record<string, string>> { return {...this.files.get(username)}; }
+  async setTerminologyFile(username: string, key: string, path: string): Promise<void> {
+    const files = {...this.files.get(username)};
+    if (path === '') delete files[key];
+    else files[key] = path;
+    this.files.set(username, files);
+  }
 }

@@ -22,6 +22,7 @@
   "yourphr.relay.secret": "",
   "yourphr.auth.session.sliding-seconds": 3600,
   "yourphr.auth.session.absolute-seconds": 43200,
+  "yourphr.auth.session.key": "",
   "yourphr.auth.throttle.max-failures": 5,
   "yourphr.auth.throttle.window-seconds": 900,
   "_comment_signup_enabled": "Self-service signup (yourphr#691). DEFAULT FALSE, deliberately: a self-hosted PHR reachable from the internet with an open signup form hands an account to whoever arrives first, and the first start already creates a bootstrap admin whose password is written to <data>/.admin_bootstrap_password — so nobody needs signup to get in. An operator who wants household members to register themselves turns it on; otherwise accounts are created at Admin -> Users. ngdpbase calls this ngdpbase.application.registration and splits it into a master policy plus a per-mechanism toggle for magic-link and OIDC; this stack has one mechanism (password), so it is one key. The name follows the WIRE format the Angular sign-in page already reads from /api/instance/public (signup.enabled) rather than ngdpbase's key name.",
@@ -203,11 +204,13 @@
     "yourphr.web.secure-cookies": "YOURPHR_WEB_SECURE_COOKIES",
     "yourphr.web.static-dir": "YOURPHR_WEB_STATIC_DIR",
     "yourphr.database.encryption.key": "YOURPHR_DATABASE_ENCRYPTION_KEY",
+    "yourphr.auth.session.key": "YOURPHR_AUTH_SESSION_KEY",
     "yourphr.backup.encryption.key": "YOURPHR_BACKUP_ENCRYPTION_KEY",
     "yourphr.relay.secret": "YOURPHR_RELAY_SECRET"
   },
   "yourphr.config.secret-keys": [
     "yourphr.database.encryption.key",
+    "yourphr.auth.session.key",
     "yourphr.backup.encryption.key",
     "yourphr.demo.password",
     "yourphr.demo.admin.password",

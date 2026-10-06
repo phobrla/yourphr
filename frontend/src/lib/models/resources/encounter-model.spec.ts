@@ -1,13 +1,105 @@
 import { EncounterModel } from './encounter-model';
 import {DocumentReferenceModel} from './document-reference-model';
-import * as example1Fixture from "../../fixtures/r4/resources/encounter/example1.json"
-import * as example2Fixture from "../../fixtures/r4/resources/encounter/example2.json"
-import * as example3Fixture from "../../fixtures/r4/resources/encounter/example3.json"
+import example1Fixture from "../../fixtures/r4/resources/encounter/example1.json"
+import example2Fixture from "../../fixtures/r4/resources/encounter/example2.json"
+import example3Fixture from "../../fixtures/r4/resources/encounter/example3.json"
 import * as exampleFmhFixture from "../../fixtures/r4/resources/encounter/example-followmyhealth.json"
 import * as exampleEpicHovFixture from "../../fixtures/r4/resources/encounter/example-epic-hov.json"
 
 
 describe('EncounterModel', () => {
+  it('keeps additional note narratives and independent authors separate', () => {
+    const model = new EncounterModel({
+      extension: ['first', 'second'].map(id => ({url: 'https://yourphr.org/fhir/StructureDefinition/encounter-note', valueReference: {reference: `#${id}`}})),
+      contained: [
+        {resourceType: 'DocumentReference', id: 'first', text: {div: '<div>First note</div>'}, author: [{display: 'First Provider'}]},
+        {resourceType: 'DocumentReference', id: 'second', text: {div: '<div>Second note</div>'},
+          author: [{display: 'Second Provider'}], content: [{attachment: {creation: '2020-04-22'}}]},
+      ],
+    });
+    expect(model.narrative).toBe('<div>First note</div>');
+    expect(model.noteAuthors).toEqual(['First Provider']);
+    expect(model.additionalNotes).toEqual([{authors: ['Second Provider'], authored: '2020-04-22', narrative: '<div>Second note</div>'}]);
+  });
+  it('resolves only referenced labs and note attribution with separate collection/report/authored dates', () => {
+    const model = new EncounterModel({
+      extension: [
+        {url: 'https://yourphr.org/fhir/StructureDefinition/encounter-laboratory-result', valueReference: {reference: '#lab'}},
+        {url: 'https://yourphr.org/fhir/StructureDefinition/encounter-note', valueReference: {reference: '#note'}},
+      ],
+      contained: [
+        {resourceType: 'Observation', id: 'lab', code: {text: 'Glucose', coding: [{system: 'http://loinc.org', code: '2345-7'}]},
+          valueQuantity: {value: 0, comparator: '<', unit: 'mg/dL'}, status: 'final', effectiveDateTime: '2020-04-21', issued: '2020-04-23T12:30:00Z',
+          referenceRange: [{text: '70-99 mg/dL'}], specimen: {display: 'Serum'}, performer: [{display: 'Synthetic laboratory'}], note: [{text: 'Fasting'}]},
+        {resourceType: 'DocumentReference', id: 'note', author: [{display: 'Synthetic Author, MD'}],
+          content: [{attachment: {creation: '2020-04-20'}}]},
+        {resourceType: 'DocumentReference', id: 'unrelated', author: [{display: 'Not the author'}]},
+      ],
+    });
+    expect(model.noteAuthors).toEqual(['Synthetic Author, MD']);
+    expect(model.noteAuthored).toBe('2020-04-20');
+    expect(model.measurements).toEqual([]);
+    expect(model.labs).toEqual([{
+      label: 'Glucose', code: '2345-7', value: '<0 mg/dL', status: 'final', collected: '2020-04-21',
+      issued: '2020-04-23T12:30:00Z', referenceRange: ['70-99 mg/dL'], specimen: 'Serum',
+      laboratory: ['Synthetic laboratory'], notes: ['Fasting'],
+    }]);
+  });
+  it('shows referenced encounter measurements with zero scores and distinct LNMP dates, not unrelated observations', () => {
+    const model = new EncounterModel({
+      extension: [
+        {url: 'https://yourphr.org/fhir/StructureDefinition/encounter-observation', valueReference: {reference: '#phq'}},
+        {url: 'https://yourphr.org/fhir/StructureDefinition/encounter-observation', valueReference: {reference: '#lnmp'}},
+        {url: 'https://yourphr.org/fhir/StructureDefinition/encounter-observation', valueReference: {reference: '#bp'}},
+      ],
+      contained: [
+        {resourceType: 'Observation', id: 'phq', code: {text: 'PHQ-2', coding: [{system: 'http://loinc.org', code: '55758-7'}]},
+          valueQuantity: {value: 0, unit: 'score'}, effectiveDateTime: '2020-04-20'},
+        {resourceType: 'Observation', id: 'lnmp', code: {text: 'LNMP'}, valueDateTime: '2020-04-04', effectiveDateTime: '2020-04-20'},
+        {resourceType: 'Observation', id: 'bp', code: {text: 'Blood pressure'},
+          component: [{code: {text: 'Systolic blood pressure'}, valueQuantity: {value: 122, unit: 'mm[Hg]'}}],
+          meta: {tag: [{code: 'needs-review'}]}, note: [{text: 'Incomplete reading'}]},
+        {resourceType: 'Observation', id: 'unrelated', code: {text: 'Do not show'}},
+      ],
+    });
+    expect(model.measurements).toEqual([
+      {label: 'PHQ-2', value: '0 score', code: '55758-7', measuredAt: '2020-04-20', notes: [], needsReview: false},
+      {label: 'LNMP', value: '2020-04-04', code: undefined, measuredAt: '2020-04-20', notes: [], needsReview: false},
+      {label: 'Blood pressure', value: 'Systolic blood pressure: 122 mm[Hg]', code: undefined, measuredAt: undefined, notes: ['Incomplete reading'], needsReview: true},
+    ]);
+  });
+  it('reads only a referenced LOINC chief complaint without treating diagnoses as complaints', () => {
+    const model = new EncounterModel({
+      resourceType: 'Encounter', reasonCode: [{text: 'Review'}, {text: 'My head hurts'}],
+      reasonReference: [{reference: '#chief'}],
+      contained: [
+        {resourceType: 'Observation', id: 'other', code: {coding: [{system: 'http://loinc.org', code: '10154-3'}]}, valueString: 'Not linked'},
+        {resourceType: 'Observation', id: 'chief', code: {coding: [{system: 'http://loinc.org', code: '10154-3'}]}, valueString: 'My head hurts'},
+      ],
+    });
+    expect(model.chiefComplaint).toBe('My head hurts');
+    expect(model.reasonCode).toHaveSize(2);
+    expect(model.diagnoses).toEqual([]);
+  });
+  it('shows contained ICD diagnoses, their distinct expected dates and existing references', () => {
+    const model = new EncounterModel({
+      resourceType: 'Encounter', status: 'finished',
+      contained: [
+        {resourceType: 'Condition', id: 'd1', code: {text: 'URI', coding: [{system: 'http://hl7.org/fhir/sid/icd-10-cm', code: 'J06.9'}]}},
+        {resourceType: 'Condition', id: 'd2', code: {coding: [{system: 'http://hl7.org/fhir/sid/icd-9-cm', code: '465.9'}]}},
+      ],
+      diagnosis: [
+        {condition: {reference: '#d1'}, extension: [{url: 'https://yourphr.org/fhir/StructureDefinition/encounter-diagnosis-expected-end-date', valueDate: '2026-10-12'}]},
+        {condition: {reference: '#d2', display: 'Legacy URI'}},
+        {condition: {reference: 'Condition/existing', display: 'Hypertension'}},
+      ],
+    });
+    expect(model.diagnoses).toEqual([
+      {display: 'URI', codes: ['ICD-10-CM J06.9'], expectedEndDate: '2026-10-12'},
+      {display: 'Legacy URI', codes: ['ICD-9-CM 465.9'], expectedEndDate: undefined},
+      {display: 'Hypertension', codes: [], expectedEndDate: undefined},
+    ]);
+  });
   it('should create an instance', () => {
     expect(new EncounterModel({})).toBeTruthy();
   });
@@ -15,6 +107,7 @@ describe('EncounterModel', () => {
 
     it('should parse example1.json', () => {
       const expected = new EncounterModel({})
+      expected.narrative = example1Fixture.text.div;
       // periodEnd: string | undefined
       // periodStart: string | undefined
       // hasParticipant: boolean | undefined
@@ -32,6 +125,7 @@ describe('EncounterModel', () => {
 
     it('should parse example2.json', () => {
       const expected = new EncounterModel({})
+      expected.narrative = example2Fixture.text.div;
       expected.period_end = '2015-01-17T16:30:00Z'
       expected.period_start = '2015-01-17T16:00:00Z'
       expected.has_participant = true
@@ -58,6 +152,7 @@ describe('EncounterModel', () => {
 
     it('should parse example3.json', () => {
       const expected = new EncounterModel({})
+      expected.narrative = example3Fixture.text.div;
       // expected.periodEnd = '2015-01-17T16:30:00+10:00'
       // expected.periodStart = '2015-01-17T16:00:00+10:00'
       expected.has_participant = true

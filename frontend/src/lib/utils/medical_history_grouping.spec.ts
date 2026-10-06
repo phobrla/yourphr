@@ -55,9 +55,14 @@ describe('medical_history_grouping', () => {
   });
 
   it('groups by type with friendly labels', () => {
-    const mixed = [row({resourceType: 'Encounter'}), row({resourceType: 'DiagnosticReport'}), row({resourceType: 'Procedure'})];
+    const mixed = [
+      row({resourceType: 'Encounter'}),
+      row({resourceType: 'DiagnosticReport'}),
+      row({resourceType: 'Procedure'}),
+      row({resourceType: 'Device'}),
+    ];
     const g = groupHistory(mixed, 'type');
-    expect(g.map((x) => x.label).sort()).toEqual(['Lab & Diagnostic', 'Procedures', 'Visits']);
+    expect(g.map((x) => x.label).sort()).toEqual(['Implants', 'Lab & Diagnostic', 'Procedures', 'Visits']);
   });
 
   it('merges related types into one category group (MedicationRequest + MedicationStatement)', () => {
@@ -76,6 +81,7 @@ describe('medical_history_grouping', () => {
 
   it('typeLabel maps known types and passes through unknown', () => {
     expect(typeLabel('MedicationStatement')).toBe('Medications');
+    expect(typeLabel('Device')).toBe('Implants');
     expect(typeLabel('Wibble')).toBe('Wibble');
   });
 });

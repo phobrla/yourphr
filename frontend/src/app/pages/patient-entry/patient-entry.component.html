@@ -2,12 +2,16 @@
   <div class="d-flex justify-content-between align-items-start flex-wrap mg-b-20">
     <div>
       <h4 class="mg-b-5"><i class="fas fa-heart-pulse"></i>&nbsp; Add a record</h4>
+      @if (kind === 'visit') {
+        <p class="tx-gray-500 mg-b-0">Record the visit basics, then add clinical details as needed. Everything stays in your draft until you save.</p>
+      } @else {
       <p class="tx-gray-500 mg-b-0">
-        Measurements you take at home, an allergy, or a medication you take (patient-generated data). Each is stored
+        A visit, measurement, allergy, medication, or implant you report. Each is stored
         as the kind of FHIR record it is &mdash; a vital as an Observation, an allergy as an AllergyIntolerance, a
-        medication as a MedicationStatement &mdash; marked <strong>patient-reported</strong>, and shown with your
+        medication as a MedicationStatement, or a visit as an Encounter &mdash; marked <strong>patient-reported</strong>, and shown with your
         other records.
       </p>
+      }
     </div>
     <div class="mg-t-5">
       <a routerLink="/records/review" class="btn btn-outline-secondary">Waiting for you…</a>
@@ -38,21 +42,142 @@
 
   <div class="card">
     <div class="card-body">
-      <form (ngSubmit)="submit()" class="row row-sm">
+      <form (ngSubmit)="submit()" class="row row-sm" [class.align-items-end]="kind === 'visit'" [class.visit-form]="kind === 'visit'">
         <div class="col-md-3 mg-b-15">
           <label class="form-label" for="entry-kind">What are you adding?</label>
           <select id="entry-kind" class="form-control" [(ngModel)]="kind" name="kind">
             <option value="vital">A measurement</option>
+            <option value="visit">A visit</option>
             <option value="allergy">An allergy</option>
             <option value="medication">A medication</option>
+            <option value="implant">An implant</option>
           </select>
         </div>
 
-        @if (!isVital) {
+        @if (kind === 'visit') {
+          <div class="w-100"></div>
+          <div class="col-12 visit-section-heading"><h5>Visit basics</h5></div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="vital-date">Visit start date</label>
+            <input id="vital-date" type="date" class="form-control" [(ngModel)]="effectiveDate" name="effectiveDate" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="visit-start-time">Visit start time <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="visit-start-time" type="time" class="form-control" [(ngModel)]="visitStartTime" name="visitStartTime" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="visit-end-date">Visit end date <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="visit-end-date" type="date" class="form-control" [(ngModel)]="visitEndDate" name="visitEndDate" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="visit-end-time">Visit end time <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="visit-end-time" type="time" class="form-control" [(ngModel)]="visitEndTime" name="visitEndTime" />
+          </div>
+          <div class="col-12 mg-b-15 text-muted">Times use your local timezone. Leave times blank when only dates are recorded.</div>
+          <div class="w-100"></div>
+        }
+
+        @if (!isVital && kind !== 'visit') {
           <div class="col-md-5 mg-b-15">
             <label class="form-label" for="entry-name">{{ nameLabel }}</label>
-            <input id="entry-name" type="text" class="form-control" [(ngModel)]="name" name="name" />
+            <input id="entry-name" type="text" class="form-control" [(ngModel)]="name" name="name" [placeholder]="namePlaceholder" required />
           </div>
+        }
+
+        @if (kind === 'visit') {
+          <div class="col-md-6 mg-b-15">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <h6 class="mb-0">Visit reasons and chief complaint</h6>
+              <button type="button" class="btn btn-link p-0 flex-shrink-0" aria-label="About visit reasons and type" ngbTooltip="Reasons describe why you sought care; visit type describes the service provided. These menus offer a small set of common SNOMED CT concepts, not a complete terminology catalog. Manual text is preserved without guessing a code. You may add reasons and mark one as the primary chief complaint: your main concern, not a confirmed diagnosis. Reasons save in FHIR Encounter.reasonCode; the chief complaint also saves as a linked LOINC 10154-3 Observation. Visit type saves as a single Encounter.type." triggers="hover focus" container="body"><i class="fas fa-info-circle" aria-hidden="true"></i></button>
+            </div>
+            @if (name) {
+              <ul class="list-unstyled mb-2">
+                <li>{{ name }} @if (primaryVisitReason === 0) { <span class="badge bg-secondary">Primary chief complaint</span> }</li>
+                @for (reason of additionalVisitReasons; track reason; let i = $index) {
+                  <li>{{ reason.text }} @if (primaryVisitReason === i + 1) { <span class="badge bg-secondary">Primary chief complaint</span> }</li>
+                }
+              </ul>
+            } @else { <p class="text-muted mb-2">No visit reason added.</p> }
+            <button id="edit-visit-reasons" type="button" class="btn btn-outline-primary" (click)="openVisitEditor(reasonsDialog, 'reasons')">{{ name ? 'Edit visit reasons' : 'Add visit reason' }}</button>
+          </div>
+          <div class="col-md-6 mg-b-15">
+            <label class="form-label" for="visit-type">Visit type</label>
+            <select id="visit-type-code" class="form-control mb-2" aria-label="Visit type terminology" [(ngModel)]="visitTypeCode" name="visitTypeCode" (ngModelChange)="selectVisitType($event)">
+              <option value="">Enter a type manually</option>
+              @for (option of visitTerminology.type.options; track option.code) {
+                <option [value]="option.code">{{ option.display }} (SNOMED CT {{ option.code }})</option>
+              }
+            </select>
+            <input id="visit-type" type="text" class="form-control" [(ngModel)]="visitType" name="visitType" [disabled]="!!visitTypeCode" placeholder="Outpatient visit" required />
+          </div>
+          <ng-template #reasonsDialog let-modal>
+            <div class="modal-header">
+              <h5 class="modal-title" id="visit-reasons-dialog-title">Visit reasons and chief complaint</h5>
+              <button type="button" class="btn-close" aria-label="Close visit reasons dialog" (click)="modal.dismiss()"></button>
+            </div>
+            <form #reasonsForm="ngForm" class="d-flex flex-column overflow-hidden" (ngSubmit)="finishVisitEditor('reasons', modal.close.bind(modal))">
+            <div class="modal-body">
+            <p class="text-muted">Select one primary chief complaint, or leave it unspecified. Done updates your draft; Save record persists the visit.</p>
+            @if (dialogError) { <div role="alert" class="alert alert-danger">{{ dialogError }}</div> }
+            <div class="row row-sm align-items-end mg-b-15">
+              <div class="col-md-9">
+                <label class="form-label" for="entry-name">Reason / presenting complaint</label>
+                <textarea id="entry-name" class="form-control" rows="4" [(ngModel)]="name" name="name" placeholder="Record the complaint or reason as documented. Include symptom location, onset, duration, or the purpose of follow-up when relevant; do not infer a diagnosis." required></textarea>
+              </div>
+              <div class="col-md-3">
+                <div class="form-check mb-2">
+                  <input id="visit-primary-0" class="form-check-input" type="radio" name="visitPrimaryReason" [(ngModel)]="primaryVisitReason" [value]="0" />
+                  <label class="form-check-label" for="visit-primary-0">Primary chief complaint</label>
+                </div>
+              </div>
+              <details class="col-12 mt-2">
+                <summary>Optional SNOMED CT coding (limited quick picks)</summary>
+                <label class="form-label" for="visit-reason-code">Recorded concept</label>
+                <select id="visit-reason-code" class="form-control" aria-label="Reason terminology" [(ngModel)]="visitReasonCode" name="visitReasonCode" (ngModelChange)="selectVisitReason($event)">
+                  <option value="">Enter in your own words</option>
+                  @for (option of visitTerminology.reason.options; track option.code) {
+                    <option [value]="option.code">{{ option.display }} (SNOMED CT {{ option.code }})</option>
+                  }
+                </select>
+              </details>
+            </div>
+            <div class="form-check mb-2">
+              <input id="visit-primary-none" class="form-check-input" type="radio" name="visitPrimaryReason" [(ngModel)]="primaryVisitReason" [value]="-1" />
+              <label class="form-check-label" for="visit-primary-none">No primary chief complaint recorded</label>
+            </div>
+            @for (reason of additionalVisitReasons; track reason; let i = $index) {
+              <div class="row row-sm align-items-end mg-b-15">
+                <div class="col-md-9">
+                  <label class="form-label" [for]="'visit-reason-text-' + i">Additional reason / complaint {{ i + 1 }}</label>
+                  <textarea [id]="'visit-reason-text-' + i" class="form-control" rows="4" [(ngModel)]="reason.text" [name]="'visitReasonText-' + i" required></textarea>
+                </div>
+                <details class="col-12 mt-2 order-3">
+                  <summary>Optional SNOMED CT coding (limited quick picks)</summary>
+                  <label class="form-label" [for]="'visit-reason-code-' + i">Recorded concept</label>
+                  <select [id]="'visit-reason-code-' + i" class="form-control" [(ngModel)]="reason.code" [name]="'visitReasonCode-' + i" (ngModelChange)="selectVisitReason($event, i)">
+                    <option value="">Enter in your own words</option>
+                    @for (option of visitTerminology.reason.options; track option.code) {
+                      <option [value]="option.code">{{ option.display }} (SNOMED CT {{ option.code }})</option>
+                    }
+                  </select>
+                </details>
+                <div class="col-md-3">
+                  <div class="form-check mb-2">
+                    <input [id]="'visit-primary-' + (i + 1)" class="form-check-input" type="radio" name="visitPrimaryReason" [(ngModel)]="primaryVisitReason" [value]="i + 1" />
+                    <label class="form-check-label" [for]="'visit-primary-' + (i + 1)">Primary chief complaint</label>
+                  </div>
+                  <button type="button" class="btn btn-outline-danger" (click)="removeVisitReason(i, $event)" [attr.aria-label]="'Remove visit reason ' + (i + 1)">Remove</button>
+                </div>
+              </div>
+            }
+            <button type="button" class="btn btn-outline-primary" (click)="additionalVisitReasons.push({text: '', code: ''})">Add visit reason</button>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+              <button type="submit" class="btn btn-primary" [disabled]="reasonsForm.invalid">Done</button>
+            </div>
+            </form>
+          </ng-template>
         }
 
         @if (kind === 'medication') {
@@ -63,6 +188,590 @@
               <option value="active">Yes, I take it now</option>
               <option value="stopped">No, I stopped</option>
             </select>
+          </div>
+        }
+
+        @if (kind === 'implant') {
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="implant-status">Status</label>
+            <select id="implant-status" class="form-control" [(ngModel)]="implantStatus" name="implantStatus">
+              <option value="unknown">Unknown / not stated</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="implant-udi">UDI device identifier <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="implant-udi" type="text" class="form-control" [(ngModel)]="implantDeviceIdentifier" name="implantDeviceIdentifier" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="implant-distinct-id">Distinct identifier <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="implant-distinct-id" type="text" class="form-control" [(ngModel)]="implantDistinctIdentifier" name="implantDistinctIdentifier" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="implant-serial">Serial number <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="implant-serial" type="text" class="form-control" [(ngModel)]="implantSerialNumber" name="implantSerialNumber" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="implant-lot">Lot number <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="implant-lot" type="text" class="form-control" [(ngModel)]="implantLotNumber" name="implantLotNumber" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="implant-manufacture-date">Manufacture date <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="implant-manufacture-date" type="date" class="form-control" [(ngModel)]="implantManufactureDate" name="implantManufactureDate" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="implant-expiration-date">Expiration date <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="implant-expiration-date" type="date" class="form-control" [(ngModel)]="implantExpirationDate" name="implantExpirationDate" />
+          </div>
+        }
+
+        @if (kind === 'visit') {
+          <div class="col-md-3 mg-b-15">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <label class="form-label mb-0" for="visit-setting">Visit class</label>
+              <button type="button" class="btn btn-link p-0 flex-shrink-0" aria-label="About visit class terminology" ngbTooltip="Mapped to HL7 ActCode encounter class" triggers="hover focus" container="body"><i class="fas fa-info-circle" aria-hidden="true"></i></button>
+            </div>
+            <select id="visit-setting" class="form-control" [(ngModel)]="visitClass" name="visitClass" required>
+              <option value="">Choose a setting</option>
+              @for (option of visitTerminology.class.options; track option.code) {
+                <option [value]="option.code">{{ option.label }} ({{ option.code }})</option>
+              }
+            </select>
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <label class="form-label mb-0" for="visit-status">Status</label>
+              <button type="button" class="btn btn-link p-0 flex-shrink-0" aria-label="About visit status terminology" ngbTooltip="Mapped to FHIR EncounterStatus (required by FHIR)" triggers="hover focus" container="body"><i class="fas fa-info-circle" aria-hidden="true"></i></button>
+            </div>
+            <select id="visit-status" class="form-control" [(ngModel)]="visitStatus" name="visitStatus">
+              @for (option of visitTerminology.status.options; track option.code) {
+                <option [value]="option.code">{{ option.display }} ({{ option.code }})</option>
+              }
+            </select>
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="visit-provider">Provider <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <select id="visit-provider" class="form-control" [(ngModel)]="providerId" name="providerId">
+              <option value="">Not recorded</option>
+              @for (provider of practitioners; track provider.id) {
+                <option [value]="provider.id">{{ provider.name }}</option>
+              }
+            </select>
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="visit-organization">Facility <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <select id="visit-organization" class="form-control" [(ngModel)]="organizationId" name="organizationId">
+              <option value="">Not recorded</option>
+              @for (organization of organizations; track organization.id) {
+                <option [value]="organization.id">{{ organization.name }}</option>
+              }
+            </select>
+          </div>
+          <details class="col-12 visit-details" [open]="!!(visitIdentifier || visitLocationCode || visitLocation || visitDispositionCode || visitDisposition)">
+            <summary>Location, discharge and identifiers <span class="text-muted">(optional)</span></summary>
+            <div class="row row-sm align-items-end mt-3">
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="visit-identifier">Visit identifier <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="visit-identifier" type="text" class="form-control" [(ngModel)]="visitIdentifier" name="visitIdentifier" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <label class="form-label mb-0" for="visit-location-type">Location type <span class="tx-gray-500 tx-11">(optional)</span></label>
+              <button type="button" class="btn btn-link p-0 flex-shrink-0" aria-label="About location type terminology" ngbTooltip="Mapped to SNOMED CT (Systematized Nomenclature of Medicine - Clinical Terms), a standardized clinical terminology. This identifies the kind of place where care occurred, such as a hospital, emergency department, or home. Selecting an option saves its concept code and description in the FHIR Location record. Use Location name for the specific place; free text alone does not assign a SNOMED CT code." triggers="hover focus" container="body"><i class="fas fa-info-circle" aria-hidden="true"></i></button>
+            </div>
+            <select id="visit-location-type" class="form-control" [(ngModel)]="visitLocationCode" name="visitLocationCode">
+              <option value="">Not recorded / describe below</option>
+              @for (option of visitTerminology.location.options; track option.code) {
+                <option [value]="option.code">{{ option.display }} ({{ option.code }})</option>
+              }
+            </select>
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="visit-location">Location name <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="visit-location" type="text" class="form-control" [(ngModel)]="visitLocation" name="visitLocation" placeholder="Emergency department" />
+          </div>
+          <div class="col-md-3 mg-b-15">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <label class="form-label mb-0" for="visit-disposition">Discharge disposition <span class="tx-gray-500 tx-11">(optional)</span></label>
+              <button type="button" class="btn btn-link p-0 flex-shrink-0" aria-label="About discharge disposition terminology" ngbTooltip="Mapped to SNOMED CT (Systematized Nomenclature of Medicine - Clinical Terms), a standardized clinical terminology. Discharge disposition describes where you went or were transferred when the visit ended, such as home, another hospital, or a nursing home. Selecting an option saves its concept code and description in the FHIR Encounter discharge disposition. Use Discharge details for additional information or an unlisted destination; free text alone does not assign a SNOMED CT code." triggers="hover focus" container="body"><i class="fas fa-info-circle" aria-hidden="true"></i></button>
+            </div>
+            <select id="visit-disposition" class="form-control" [(ngModel)]="visitDispositionCode" name="visitDispositionCode">
+              <option value="">Not recorded / describe below</option>
+              @for (option of visitTerminology.disposition.options; track option.code) {
+                <option [value]="option.code">{{ option.display }} ({{ option.code }})</option>
+              }
+            </select>
+          </div>
+          <div class="col-md-6 mg-b-15 align-self-start">
+            <label class="form-label" for="visit-disposition-text">Discharge details <span class="tx-gray-500 tx-11">(optional)</span></label>
+            <input id="visit-disposition-text" type="text" class="form-control" [(ngModel)]="visitDisposition" name="visitDisposition" placeholder="Additional details or an unlisted disposition" />
+          </div>
+            </div>
+          </details>
+          <div class="col-12 visit-section-heading"><h5>Clinical details</h5><p class="text-muted mb-0">Optional sections. Open an editor to add or review information.</p></div>
+          <div class="col-12">
+          <div class="visit-clinical-grid">
+          <section class="visit-summary" aria-label="Encounter diagnosis draft">
+            <h6>Encounter diagnoses <span class="text-muted">({{ visitDiagnoses.length + visitDiagnosisIds.length }})</span></h6>
+            @for (diagnosis of visitDiagnoses; track diagnosis) { <p class="mb-1">{{ diagnosis.code }} {{ diagnosis.display }}</p> }
+            @for (id of visitDiagnosisIds; track id) {
+              @for (condition of manualConditions; track condition.id) { @if (condition.id === id) { <p class="mb-1">{{ condition.title }}</p> } }
+            }
+            @if (!visitDiagnoses.length && !visitDiagnosisIds.length) { <p class="text-muted">No encounter diagnoses added.</p> }
+            <div class="visit-summary-actions">
+              <button id="edit-visit-diagnoses" type="button" class="btn btn-sm btn-outline-primary" (click)="openVisitEditor(diagnosesDialog, 'diagnoses')">{{ visitDiagnoses.length || visitDiagnosisIds.length ? 'Edit encounter diagnoses' : 'Add diagnoses' }}</button>
+            </div>
+          </section>
+          <ng-template #diagnosesDialog let-modal>
+            <div class="modal-header">
+              <h5 class="modal-title" id="visit-diagnoses-dialog-title">Encounter diagnoses</h5>
+              <button type="button" class="btn-close" aria-label="Close diagnoses dialog" (click)="modal.dismiss()"></button>
+            </div>
+            <form #diagnosesForm="ngForm" class="d-flex flex-column overflow-hidden" (ngSubmit)="finishVisitEditor('diagnoses', modal.close.bind(modal))">
+            <div class="modal-body">
+            @if (dialogError) { <div role="alert" class="alert alert-danger">{{ dialogError }}</div> }
+            <label class="form-label" for="visit-diagnoses">Encounter diagnosis <span class="tx-gray-500 tx-11">(optional; select from Added by you)</span></label>
+            <select id="visit-diagnoses" class="form-control" [(ngModel)]="visitDiagnosisIds" name="visitDiagnosisIds" multiple>
+              @for (condition of manualConditions; track condition.id) {
+                <option [value]="condition.id">{{ condition.title }}</option>
+              }
+            </select>
+            @if (diagnosisLoadError) {
+              <small class="text-danger">{{ diagnosisLoadError }}</small>
+            } @else if (manualConditions.length === 0) {
+              <small class="tx-gray-500">No diagnoses in Added by you are available to link.</small>
+            }
+          @for (id of visitDiagnosisIds; track id) {
+            <div class="col-md-6 mg-b-15">
+              <label class="form-label" [for]="'diagnosis-end-' + id">
+                Expected end date: @for (condition of manualConditions; track condition.id) { @if (condition.id === id) { {{ condition.title }} } }
+                <span class="tx-gray-500 tx-11">(optional)</span>
+              </label>
+              <input [id]="'diagnosis-end-' + id" type="date" class="form-control" [(ngModel)]="visitDiagnosisEndDates[id]" [name]="'diagnosisEnd-' + id" />
+            </div>
+          }
+          <div class="col-12 mg-b-15">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <h6 class="mb-0">Discrete encounter diagnoses</h6>
+              <button type="button" class="btn btn-link p-0 flex-shrink-0" aria-label="About discrete encounter diagnoses" ngbTooltip="Search ICD-9-CM or ICD-10-CM by code or description, or enter a code from your records manually. Suggestions use bundled CDC/CMS lists; nothing you type is sent to a third party. These diagnoses belong to this visit, not your longitudinal problem list. Expected end dates are estimates, not actual resolution dates." triggers="hover focus" container="body"><i class="fas fa-info-circle" aria-hidden="true"></i></button>
+            </div>
+            @for (diagnosis of visitDiagnoses; track diagnosis; let i = $index) {
+              <div class="row row-sm diagnosis-entry">
+                <div class="col-12 mg-b-15">
+                  @if (diagnosis.selectedFromCatalog) {
+                    <span class="text-muted">Selected from the code list. Code system, code, and description are locked.</span>
+                    <button type="button" class="btn btn-outline-secondary mg-l-10" (click)="clearVisitDiagnosisSelection(diagnosis)" [attr.aria-label]="'Clear selection for diagnosis ' + (i + 1)">Clear selection</button>
+                  } @else {
+                    <app-icd-diagnosis-search [system]="diagnosis.system" [inputId]="'diagnosis-search-' + i"
+                      (selected)="selectVisitDiagnosis(diagnosis, $event)" />
+                  }
+                </div>
+                <div class="col-md-2 mg-b-15">
+                  <label class="form-label" [for]="'diagnosis-system-' + i">Code system</label>
+                  <select [id]="'diagnosis-system-' + i" class="form-control" [(ngModel)]="diagnosis.system" [name]="'diagnosisSystem-' + i" [disabled]="diagnosis.selectedFromCatalog === true" (ngModelChange)="diagnosis.code = ''; diagnosis.display = ''" required>
+                    @for (system of visitTerminology.diagnosis.systems; track system.system) {
+                      <option [value]="system.system">{{ system.label }}</option>
+                    }
+                  </select>
+                </div>
+                <div class="col-md-2 mg-b-15">
+                  <label class="form-label" [for]="'diagnosis-code-' + i">Diagnosis code</label>
+                  <input [id]="'diagnosis-code-' + i" type="text" class="form-control" [(ngModel)]="diagnosis.code" [name]="'diagnosisCode-' + i" [disabled]="diagnosis.selectedFromCatalog === true" placeholder="e.g. J06.9 or 465.9" required />
+                </div>
+                <div class="col-md-4 mg-b-15">
+                  <label class="form-label" [for]="'diagnosis-description-' + i">Description <span class="tx-gray-500 tx-11">(optional)</span></label>
+                  <input [id]="'diagnosis-description-' + i" type="text" class="form-control" [(ngModel)]="diagnosis.display" [name]="'diagnosisDescription-' + i" [disabled]="diagnosis.selectedFromCatalog === true" />
+                </div>
+                <div class="col-md-3 mg-b-15">
+                  <label class="form-label" [for]="'diagnosis-end-new-' + i">Expected end date <span class="tx-gray-500 tx-11">(optional)</span></label>
+                  <input [id]="'diagnosis-end-new-' + i" type="date" class="form-control" [(ngModel)]="diagnosis.expected_end_date" [name]="'diagnosisEndNew-' + i" />
+                </div>
+                <div class="col-md-1 mg-b-15 align-self-end">
+                  <button type="button" class="btn btn-outline-danger" (click)="removeVisitEditorRow(visitDiagnoses, i, $event)" [attr.aria-label]="'Remove diagnosis ' + (i + 1)">Remove</button>
+                </div>
+              </div>
+            }
+            <button id="add-visit-diagnosis" type="button" class="btn btn-outline-primary" (click)="addVisitDiagnosis()">Add ICD diagnosis</button>
+          </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+              <button type="submit" class="btn btn-primary" [disabled]="diagnosesForm.invalid">Done</button>
+            </div>
+            </form>
+          </ng-template>
+          <section class="visit-summary" aria-label="Billing code draft">
+            <h6>UB-04 billing codes <span class="text-muted">({{ visitBilling.length }})</span></h6>
+            @for (entry of visitBilling; track entry) { <p class="mb-1">{{ entry.kind === 'revenue' ? 'Revenue' : 'Type of bill' }}: {{ entry.code }} {{ entry.description }}</p> }
+            @if (!visitBilling.length) { <p class="text-muted">No billing codes added.</p> }
+            <div class="visit-summary-actions"><button type="button" class="btn btn-sm btn-outline-primary" (click)="openVisitEditor(billingDialog, 'billing', !visitBilling.length)">{{ visitBilling.length ? 'Edit billing codes' : 'Add billing codes' }}</button></div>
+          </section>
+          <ng-template #billingDialog let-modal>
+            <div class="modal-header">
+              <h5 class="modal-title" id="visit-billing-dialog-title">UB-04 billing codes</h5>
+              <button type="button" class="btn-close" aria-label="Close billing codes dialog" (click)="modal.dismiss()"></button>
+            </div>
+            <form #billingForm="ngForm" class="d-flex flex-column overflow-hidden" (ngSubmit)="finishVisitEditor('billing', modal.close.bind(modal))">
+              <div class="modal-body">
+                <p class="text-muted">Transcribe revenue codes (FL 42) or type of bill (FL 04) from your bill. Keep leading zeros. No licensed NUBC catalog is bundled, so codes and descriptions are not verified. These are billing annotations on the visit, not diagnoses or a submitted claim.</p>
+                @if (dialogError) { <div role="alert" class="alert alert-danger">{{ dialogError }}</div> }
+                @for (entry of visitBilling; track entry; let i = $index) {
+                  <div class="row row-sm align-items-end mb-3">
+                    <div class="col-md-3"><label [for]="'billing-kind-' + i">Code type</label><select class="form-control" [id]="'billing-kind-' + i" [(ngModel)]="entry.kind" [name]="'billingKind-' + i"><option value="revenue">Revenue (FL 42)</option><option value="type-of-bill">Type of bill (FL 04)</option></select></div>
+                    <div class="col-md-2"><label [for]="'billing-code-' + i">Code</label><input class="form-control" [id]="'billing-code-' + i" [(ngModel)]="entry.code" [name]="'billingCode-' + i" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required /></div>
+                    <div class="col-md-5"><label [for]="'billing-description-' + i">Description from bill (optional)</label><input class="form-control" [id]="'billing-description-' + i" [(ngModel)]="entry.description" [name]="'billingDescription-' + i" /></div>
+                    <div class="col-md-2"><button type="button" class="btn btn-outline-danger" (click)="removeVisitEditorRow(visitBilling, i, $event)" [attr.aria-label]="'Remove billing code ' + (i + 1)">Remove</button></div>
+                  </div>
+                }
+                <button type="button" class="btn btn-outline-primary" (click)="visitBilling.push({kind: 'revenue', code: '', description: ''})">Add billing code</button>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+                <button type="submit" class="btn btn-primary" [disabled]="billingForm.invalid">Done</button>
+              </div>
+            </form>
+          </ng-template>
+          <section class="visit-summary" aria-label="Measurement draft">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <h6 class="mb-0">Visit measurements and screenings</h6>
+              <button type="button" class="btn btn-link p-0 flex-shrink-0" aria-label="About visit measurements" ngbTooltip="Add only measurements or screening results actually recorded for this visit. PHQ-2 and PHQ-9 accept existing total scores (0-6 and 0-27); this is not a questionnaire and does not infer a diagnosis or individual answers. LNMP means the start date of the last normal menstrual period, not the visit date. Measurement date defaults to the recorded visit date; no missing values are assumed. These FHIR Observations are saved inside this Encounter, linked to it and preserved with its export, not as separate timeline/chart records. Notes can preserve details such as temperature site or source wording." triggers="hover focus" container="body"><i class="fas fa-info-circle" aria-hidden="true"></i></button>
+            </div>
+            @if (visitObservations.length) {
+              <ul class="list-unstyled mb-2">
+                @for (observation of visitObservations; track observation) {
+                  <li class="border-bottom py-2">{{ measurementSummary(observation) }}</li>
+                }
+              </ul>
+              <div class="visit-summary-actions"><button type="button" class="btn btn-sm btn-outline-primary" (click)="openVisitEditor(measurementsDialog, 'measurements')">Edit measurements</button></div>
+            } @else { <p class="text-muted mb-2">No measurements added.</p> }
+            @if (!visitObservations.length) { <div class="visit-summary-actions"><button type="button" class="btn btn-sm btn-outline-primary" (click)="openVisitEditor(measurementsDialog, 'measurements', true)">Add visit measurement</button></div> }
+            <ng-template #measurementsDialog let-modal>
+              <div class="modal-header">
+                <h5 class="modal-title" id="visit-measurements-dialog-title">Visit measurements and screenings</h5>
+                <button type="button" class="btn-close" aria-label="Close measurements dialog" (click)="modal.dismiss()"></button>
+              </div>
+              <form #measurementsForm="ngForm" class="d-flex flex-column overflow-hidden" (ngSubmit)="finishVisitEditor('measurements', modal.close.bind(modal))">
+              <div class="modal-body">
+              <p class="text-muted">Enter only recorded readings. These changes remain in the visit draft until you save the record.</p>
+              @if (dialogError) { <div role="alert" class="alert alert-danger">{{ dialogError }}</div> }
+            @for (observation of visitObservations; track observation; let i = $index) {
+              <div class="row row-sm align-items-end mg-b-15 visit-observation-entry">
+                <div class="col-md-3 mg-b-10">
+                  <label class="form-label" [for]="'visit-observation-kind-' + i">Measurement {{ i + 1 }}</label>
+                  <select [id]="'visit-observation-kind-' + i" class="form-control" [(ngModel)]="observation.kind" [name]="'visitObservationKind-' + i" (ngModelChange)="changeVisitObservation(observation)">
+                    @for (option of visitTerminology.observations.options; track option.key) {
+                      <option [value]="option.key">{{ option.label }}</option>
+                    }
+                  </select>
+                </div>
+                @if (observation.kind === 'lnmp') {
+                  <div class="col-md-4 mg-b-10">
+                    <label class="form-label" [for]="'visit-observation-date-' + i">LNMP start date</label>
+                    <input [id]="'visit-observation-date-' + i" type="date" class="form-control" [(ngModel)]="observation.date" [name]="'visitObservationDate-' + i" required />
+                  </div>
+                } @else if (observation.kind === 'blood_pressure') {
+                  <div class="col-md-2 mg-b-10">
+                    <label class="form-label" [for]="'visit-observation-systolic-' + i">Systolic (mmHg)</label>
+                    <input [id]="'visit-observation-systolic-' + i" type="number" step="any" class="form-control" [(ngModel)]="observation.systolic" [name]="'visitObservationSystolic-' + i" />
+                  </div>
+                  <div class="col-md-2 mg-b-10">
+                    <label class="form-label" [for]="'visit-observation-diastolic-' + i">Diastolic (mmHg)</label>
+                    <input [id]="'visit-observation-diastolic-' + i" type="number" step="any" class="form-control" [(ngModel)]="observation.diastolic" [name]="'visitObservationDiastolic-' + i" />
+                  </div>
+                } @else {
+                  <div class="col-md-2 mg-b-10">
+                    <label class="form-label" [for]="'visit-observation-value-' + i">{{ observation.kind === 'phq2' || observation.kind === 'phq9' ? 'Total score' : 'Value' }}</label>
+                    <input [id]="'visit-observation-value-' + i" type="number" [step]="observation.kind === 'phq2' || observation.kind === 'phq9' ? 1 : 'any'" [attr.min]="observation.kind === 'phq2' || observation.kind === 'phq9' ? 0 : null" [attr.max]="observation.kind === 'phq2' ? 6 : observation.kind === 'phq9' ? 27 : null" class="form-control" [(ngModel)]="observation.value" [name]="'visitObservationValue-' + i" required />
+                  </div>
+                  <div class="col-md-2 mg-b-10">
+                    <label class="form-label" [for]="'visit-observation-unit-' + i">Unit</label>
+                    <input [id]="'visit-observation-unit-' + i" class="form-control" [(ngModel)]="observation.unit" [name]="'visitObservationUnit-' + i" [disabled]="observation.kind === 'phq2' || observation.kind === 'phq9'" />
+                  </div>
+                }
+                <div class="col-md-3 mg-b-10">
+                  <label class="form-label" [for]="'visit-observation-measured-' + i">Measurement date <span class="tx-gray-500 tx-11">(optional)</span></label>
+                  <input [id]="'visit-observation-measured-' + i" type="date" class="form-control" [(ngModel)]="observation.measured_at" [name]="'visitObservationMeasured-' + i" />
+                </div>
+                <div class="col-md-2 mg-b-10">
+                  <button type="button" class="btn btn-outline-danger" (click)="removeVisitEditorRow(visitObservations, i, $event)" [attr.aria-label]="'Remove visit measurement ' + (i + 1)">Remove</button>
+                </div>
+                <div class="col-12 mg-b-10">
+                  <label class="form-label" [for]="'visit-observation-note-' + i">Measurement details <span class="tx-gray-500 tx-11">(optional)</span></label>
+                  <input [id]="'visit-observation-note-' + i" class="form-control" [(ngModel)]="observation.note" [name]="'visitObservationNote-' + i" placeholder="Source wording, method, or site; do not infer missing details" />
+                </div>
+              </div>
+            }
+            <button type="button" class="btn btn-outline-primary" (click)="addVisitObservation()">Add visit measurement</button>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+                <button type="submit" class="btn btn-primary" [disabled]="measurementsForm.invalid">Done</button>
+              </div>
+              </form>
+            </ng-template>
+          </section>
+          <section class="visit-summary" aria-label="Laboratory result draft">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <h6 class="mb-0">Laboratory results</h6>
+              <button type="button" class="btn btn-link p-0" aria-label="About LOINC laboratory results" triggers="hover focus" container="body"
+                ngbTooltip="LOINC (Logical Observation Identifiers Names and Codes) identifies the exact test, including specimen and method where specified. Choose a matching common test or enter the LOINC code and name from your report; this is not a full LOINC catalog and manual codes are checked for syntax, not catalog membership. Results become encounter-linked laboratory Observations. Enter numeric or qualitative values exactly as reported. Display units are not assumed to be UCUM: provide a UCUM code only when known. Collection date, report timestamp, specimen, reference range and laboratory remain separate. Blank results are not negative. Results save/export inside the visit, not as independently indexed chart records. No searches are sent to third parties.">
+                <i class="fa fa-info-circle" aria-hidden="true"></i>
+              </button>
+            </div>
+            @if (visitLabs.length) {
+              <ul class="list-unstyled mb-2">
+                @for (lab of visitLabs; track $index) {
+                  <li class="border-bottom py-2">{{ labSummary(lab) }}</li>
+                }
+              </ul>
+              <div class="visit-summary-actions"><button type="button" class="btn btn-sm btn-outline-primary" (click)="openVisitEditor(labsDialog, 'labs')">Edit lab results</button></div>
+            } @else { <p class="text-muted mb-2">No laboratory results added.</p> }
+            @if (!visitLabs.length) { <div class="visit-summary-actions"><button type="button" class="btn btn-sm btn-outline-primary" (click)="openVisitEditor(labsDialog, 'labs', true)">Add lab result</button></div> }
+            <ng-template #labsDialog let-modal>
+              <div class="modal-header">
+                <h5 class="modal-title" id="visit-labs-dialog-title">Laboratory results</h5>
+                <button type="button" class="btn-close" aria-label="Close laboratory dialog" (click)="modal.dismiss()"></button>
+              </div>
+              <form #labsForm="ngForm" class="d-flex flex-column overflow-hidden" (ngSubmit)="finishVisitEditor('labs', modal.close.bind(modal))">
+              <div class="modal-body">
+              <p class="text-muted">Enter the result and available report details. Done updates the visit draft; Save record stores it.</p>
+              @if (dialogError) { <div role="alert" class="alert alert-danger">{{ dialogError }}</div> }
+            @for (lab of visitLabs; track $index; let i = $index) {
+              <div class="row row-sm align-items-end mg-b-15 visit-lab-entry">
+                <div class="col-md-4 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-selection-' + i">Common test</label>
+                  <select [id]="'visit-lab-selection-' + i" class="form-control" [(ngModel)]="lab.selection" [name]="'visitLabSelection-' + i" (ngModelChange)="selectVisitLab(i)">
+                    <option value="">Enter LOINC manually</option>
+                    @for (option of visitTerminology.labs.options; track option.code) {
+                      <option [value]="option.code">{{ option.display }}</option>
+                    }
+                  </select>
+                </div>
+                <div class="col-md-2 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-code-' + i">LOINC code</label>
+                  <input [id]="'visit-lab-code-' + i" class="form-control" [(ngModel)]="lab.code" [name]="'visitLabCode-' + i" [disabled]="!!lab.selection" required placeholder="2345-7" />
+                </div>
+                <div class="col-md-6 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-display-' + i">Test name</label>
+                  <input [id]="'visit-lab-display-' + i" class="form-control" [(ngModel)]="lab.display" [name]="'visitLabDisplay-' + i" [disabled]="!!lab.selection" required />
+                </div>
+                <div class="col-md-3 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-result-type-' + i">Result type</label>
+                  <select [id]="'visit-lab-result-type-' + i" class="form-control" [(ngModel)]="lab.result_type" [name]="'visitLabResultType-' + i" (ngModelChange)="changeVisitLabResult(i)">
+                    <option value="quantity">Numeric</option><option value="text">Qualitative / text</option>
+                  </select>
+                </div>
+                @if (lab.result_type === 'quantity') {
+                  <div class="col-md-2 mg-b-10">
+                    <label class="form-label" [for]="'visit-lab-comparator-' + i">Comparator</label>
+                    <select [id]="'visit-lab-comparator-' + i" class="form-control" [(ngModel)]="lab.comparator" [name]="'visitLabComparator-' + i">
+                      <option [ngValue]="undefined">Exact value</option>
+                      <option value="<">&lt;</option><option value="<=">&le;</option><option value=">=">&ge;</option><option value=">">&gt;</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2 mg-b-10">
+                    <label class="form-label" [for]="'visit-lab-value-' + i">Result</label>
+                    <input [id]="'visit-lab-value-' + i" type="number" step="any" class="form-control" [(ngModel)]="lab.numericValue" [name]="'visitLabValue-' + i" required />
+                  </div>
+                  <div class="col-md-2 mg-b-10">
+                    <label class="form-label" [for]="'visit-lab-unit-' + i">Reported unit</label>
+                    <input [id]="'visit-lab-unit-' + i" class="form-control" [(ngModel)]="lab.unit" [name]="'visitLabUnit-' + i" />
+                  </div>
+                  <div class="col-md-3 mg-b-10">
+                    <label class="form-label" [for]="'visit-lab-ucum-' + i">UCUM code (if known)</label>
+                    <input [id]="'visit-lab-ucum-' + i" class="form-control" [(ngModel)]="lab.ucum_code" [name]="'visitLabUcum-' + i" />
+                  </div>
+                } @else {
+                  <div class="col-md-9 mg-b-10">
+                    <label class="form-label" [for]="'visit-lab-text-' + i">Reported result</label>
+                    <input [id]="'visit-lab-text-' + i" class="form-control" [(ngModel)]="lab.text" [name]="'visitLabText-' + i" placeholder="For example, Not detected — only if stated in the report" required />
+                  </div>
+                }
+                <div class="col-md-3 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-status-' + i">Result status</label>
+                  <select [id]="'visit-lab-status-' + i" class="form-control" [(ngModel)]="lab.status" [name]="'visitLabStatus-' + i">
+                    <option value="unknown">Unknown / not stated</option><option value="preliminary">Preliminary</option>
+                    <option value="final">Final</option><option value="amended">Amended</option><option value="corrected">Corrected</option>
+                  </select>
+                </div>
+                <div class="col-md-3 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-collected-' + i">Collection date (optional)</label>
+                  <input [id]="'visit-lab-collected-' + i" type="date" class="form-control" [(ngModel)]="lab.collected" [name]="'visitLabCollected-' + i" />
+                </div>
+                <div class="col-md-6 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-issued-' + i">Report timestamp (optional, local time)</label>
+                  <input [id]="'visit-lab-issued-' + i" type="datetime-local" step="1" class="form-control" [(ngModel)]="lab.reportDate" [name]="'visitLabIssued-' + i" />
+                </div>
+                <div class="col-md-4 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-range-' + i">Reference range (optional)</label>
+                  <input [id]="'visit-lab-range-' + i" class="form-control" [(ngModel)]="lab.reference_range" [name]="'visitLabRange-' + i" />
+                </div>
+                <div class="col-md-4 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-specimen-' + i">Specimen (optional)</label>
+                  <input [id]="'visit-lab-specimen-' + i" class="form-control" [(ngModel)]="lab.specimen" [name]="'visitLabSpecimen-' + i" />
+                </div>
+                <div class="col-md-4 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-laboratory-' + i">Performing laboratory (optional)</label>
+                  <input [id]="'visit-lab-laboratory-' + i" class="form-control" [(ngModel)]="lab.laboratory" [name]="'visitLabLaboratory-' + i" />
+                </div>
+                <div class="col-md-10 mg-b-10">
+                  <label class="form-label" [for]="'visit-lab-note-' + i">Lab details (optional)</label>
+                  <input [id]="'visit-lab-note-' + i" class="form-control" [(ngModel)]="lab.note" [name]="'visitLabNote-' + i" />
+                </div>
+                <div class="col-md-2 mg-b-10">
+                  <button type="button" class="btn btn-outline-danger" (click)="removeVisitEditorRow(visitLabs, i, $event)" [attr.aria-label]="'Remove lab result ' + (i + 1)">Remove</button>
+                </div>
+              </div>
+            }
+            <button type="button" class="btn btn-outline-primary" (click)="addVisitLab()">Add lab result</button>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+                <button type="submit" class="btn btn-primary" [disabled]="labsForm.invalid">Done</button>
+              </div>
+              </form>
+            </ng-template>
+          </section>
+          <section class="visit-summary visit-notes-summary" aria-label="Visit note draft">
+            <div class="d-flex align-items-baseline gap-1 mb-2">
+              <h6 class="mb-0">Visit notes <span class="text-muted">({{ (visitNote ? 1 : 0) + additionalVisitNotes.length }})</span></h6>
+              <button type="button" class="btn btn-link p-0" aria-label="About note provider attribution" triggers="hover focus" container="body"
+                ngbTooltip="FHIR Encounter narrative has no author field. Each note is retained as a separate linked DocumentReference with authors selected from your provider address book, using Practitioner references, and an optional original authored date. Select the providers actually named as authors in the source; the visit provider is not assumed to be the note author. This remains a patient transcription, not a verified provider signature. The authored date is not the visit end or the document's signing/locking time.">
+                <i class="fa fa-info-circle" aria-hidden="true"></i>
+              </button>
+            </div>
+            <ng-template #noteAttribution>
+              <fieldset class="mt-4">
+              <legend class="h6">Note provider attribution (optional)</legend>
+              <p class="text-muted">Choose authors from your provider address book. This is patient-transcribed attribution, not a verified provider signature.</p>
+              @if (providerLoadError) { <div role="alert" class="alert alert-warning">{{ providerLoadError }}</div> }
+              <p><a routerLink="/practitioners" target="_blank" rel="noopener">Manage providers in the address book</a> <button type="button" class="btn btn-sm btn-link" (click)="loadProviders()">Refresh providers</button></p>
+              @if (!practitioners.length && !providerLoadError) { <p>No providers are available. Add one in the address book, then refresh the list without leaving your draft.</p> }
+            @for (author of visitNoteAuthors; track $index; let i = $index) {
+              <div class="row row-sm align-items-end">
+                <div class="col-md-8 mg-b-10">
+                  <label class="form-label" [for]="'visit-note-author-' + i">Note author / provider {{ i + 1 }}</label>
+                  <select [id]="'visit-note-author-' + i" class="form-control" [(ngModel)]="author.provider_id" [name]="'visitNoteAuthor-' + i" (ngModelChange)="selectNoteAuthor(author)" required>
+                    <option [ngValue]="undefined">Choose a provider</option>
+                    @for (provider of practitioners; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }
+                  </select>
+                </div>
+                <div class="col-md-4 mg-b-10">
+                  <button type="button" class="btn btn-outline-danger" (click)="removeVisitEditorRow(visitNoteAuthors, i, $event)" [attr.aria-label]="'Remove note author ' + (i + 1)">Remove author</button>
+                </div>
+              </div>
+            }
+            <div class="row row-sm align-items-end mg-b-10">
+              <div class="col-md-6 mg-b-10">
+                <button type="button" class="btn btn-outline-primary" (click)="visitNoteAuthors.push({name: ''})">Add note author</button>
+              </div>
+              <div class="col-md-6 mg-b-10">
+                <label class="form-label" for="visit-note-authored">Original note authored date <span class="tx-gray-500 tx-11">(optional)</span></label>
+                <input id="visit-note-authored" type="date" class="form-control" [(ngModel)]="visitNoteAuthored" name="visitNoteAuthored" />
+              </div>
+            </div>
+              </fieldset>
+            </ng-template>
+            <ng-template #noteToolbar let-editor="editor" let-entry="entry">
+              <div role="toolbar" aria-label="Visit note formatting" class="d-flex flex-wrap gap-1 mg-b-5">
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '**', '**', 'text', entry)" aria-label="Bold">Bold</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '*', '*', 'text', entry)" aria-label="Italic">Italic</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '\n\n## ', '\n\n', 'Heading', entry)">Heading</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '\n\n- ', '\n', 'List item', entry)">Bullet list</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '\n\n1. ', '\n', 'List item', entry)">Numbered list</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '\n\n> ', '\n', 'text', entry)">Quote</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '[', '](https://example.org)', 'Link text', entry)">Link</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '`', '`', 'text', entry)">Code</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '\n\n', '\n\n', '| Item | Details |\n| --- | --- |\n| Text | Text |', entry)">Table</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" (click)="formatVisitNote(editor, '\n\n---\n\n', '', '', entry)">Divider</button>
+              </div>
+            </ng-template>
+            @if (visitNote) { <p class="text-break">{{ visitNote.slice(0, 160) }}{{ visitNote.length > 160 ? '...' : '' }}</p> }
+            @if (visitNoteAuthors.length || visitNoteAuthored) {
+              <p class="mb-2">{{ visitNoteAuthors.length ? 'Attributed to: ' : '' }}@for (author of visitNoteAuthors; track $index; let last = $last) { {{ author.name }}{{ last ? '' : ';' }} } @if (visitNoteAuthored) { <span class="text-muted"> · Authored {{ visitNoteAuthored }}</span> }</p>
+            }
+            @if (!visitNote && !additionalVisitNotes.length) { <p class="text-muted">No notes added.</p> }
+            <div class="visit-summary-actions">
+              <button type="button" class="btn btn-sm btn-outline-primary" (click)="openVisitEditor(noteDialog, 'note')">{{ visitNote ? 'Edit visit note' : 'Add visit note' }}</button>
+            </div>
+            <ng-template #noteDialog let-modal>
+              <div class="modal-header">
+                <h5 class="modal-title" id="visit-note-dialog-title">Visit note</h5>
+                <button type="button" class="btn-close" aria-label="Close visit note dialog" (click)="modal.dismiss()"></button>
+              </div>
+              <form #noteForm="ngForm" class="d-flex flex-column overflow-hidden" (ngSubmit)="finishVisitEditor('note', modal.close.bind(modal))">
+                <div class="modal-body">
+                  @if (dialogError) { <div role="alert" class="alert alert-danger">{{ dialogError }}</div> }
+                  <ng-container [ngTemplateOutlet]="noteToolbar" [ngTemplateOutletContext]="{editor: noteEditor}" />
+                  <textarea #noteEditor id="visit-note" class="form-control" rows="14" style="min-height: 320px; resize: vertical" [(ngModel)]="visitNote" name="visitNote" aria-describedby="visit-note-help"></textarea>
+                  <small id="visit-note-help" class="form-text text-muted">Markdown formatting is saved as FHIR XHTML: paragraphs, bold, italic, headings, lists, quotes, links, code, tables, and dividers. Raw HTML and embedded images are not supported. Done updates the draft only.</small>
+                  <ng-container [ngTemplateOutlet]="noteAttribution" />
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+                  <button type="submit" class="btn btn-primary" [disabled]="noteForm.invalid">Done</button>
+                </div>
+              </form>
+            </ng-template>
+            @if (additionalVisitNotes.length) {
+              <ul class="list-unstyled my-2">
+                @for (note of additionalVisitNotes; track $index) {
+                  <li class="border-bottom py-2"><strong>Additional note {{ $index + 1 }}</strong>: {{ note.note.slice(0, 100) }}{{ note.note.length > 100 ? '...' : '' }}</li>
+                }
+              </ul>
+              <div class="visit-summary-actions"><button type="button" class="btn btn-sm btn-outline-secondary" (click)="openVisitEditor(notesDialog, 'notes')">Edit additional notes</button></div>
+            }
+            <div class="visit-summary-actions"><button type="button" class="btn btn-sm btn-link px-0" (click)="openVisitEditor(notesDialog, 'notes', true)">Add another note</button></div>
+            <ng-template #notesDialog let-modal>
+              <div class="modal-header">
+                <h5 class="modal-title" id="visit-notes-dialog-title">Additional visit notes</h5>
+                <button type="button" class="btn-close" aria-label="Close additional notes modal" (click)="modal.dismiss()"></button>
+              </div>
+              <form #notesForm="ngForm" class="d-flex flex-column overflow-hidden" (ngSubmit)="finishVisitEditor('notes', modal.close.bind(modal))">
+                <div class="modal-body">
+                  <p class="text-muted">Each note keeps its own content, provider authors and authored date. Done updates your draft; Save record stores the visit.</p>
+                  @if (dialogError) { <div role="alert" class="alert alert-danger">{{ dialogError }}</div> }
+                  @if (providerLoadError) { <div role="alert" class="alert alert-warning">{{ providerLoadError }}</div> }
+                  <p><a routerLink="/practitioners" target="_blank" rel="noopener">Manage providers in the address book</a> <button type="button" class="btn btn-sm btn-link" (click)="loadProviders()">Refresh providers</button></p>
+                  @for (note of additionalVisitNotes; track note; let i = $index) {
+                    <fieldset class="border rounded p-3 mb-3">
+                      <legend class="float-none w-auto px-2 fs-6">Additional note {{ i + 1 }}</legend>
+                      <div class="row row-sm align-items-end">
+                        <div class="col-md-8 mb-2">
+                          @for (author of note.authors; track author; let j = $index) {
+                            <label class="form-label" [for]="'additional-note-author-' + i + '-' + j">Author / provider {{ j + 1 }}</label>
+                            <div class="d-flex gap-2 mb-2">
+                              <select [id]="'additional-note-author-' + i + '-' + j" class="form-control" [(ngModel)]="author.provider_id" [name]="'additionalNoteAuthor-' + i + '-' + j" (ngModelChange)="selectNoteAuthor(author)" required>
+                                <option [ngValue]="undefined">Choose a provider</option>
+                                @for (provider of practitioners; track provider.id) { <option [value]="provider.id">{{ provider.name }}</option> }
+                              </select>
+                              <button type="button" class="btn btn-outline-danger" (click)="removeVisitEditorRow(note.authors, j, $event)" [attr.aria-label]="'Remove author ' + (j + 1) + ' from additional note ' + (i + 1)">Remove</button>
+                            </div>
+                          }
+                          <button type="button" class="btn btn-sm btn-outline-secondary" (click)="note.authors.push({name: ''})" [attr.aria-label]="'Add author to additional note ' + (i + 1)">Add author</button>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                          <label class="form-label" [for]="'additional-note-authored-' + i">Authored date (optional)</label>
+                          <input [id]="'additional-note-authored-' + i" type="date" class="form-control" [(ngModel)]="note.authored" [name]="'additionalNoteAuthored-' + i" />
+                        </div>
+                      </div>
+                      <label class="form-label" [for]="'additional-note-text-' + i">Note content</label>
+                      <ng-container [ngTemplateOutlet]="noteToolbar" [ngTemplateOutletContext]="{editor: additionalEditor, entry: note}" />
+                      <textarea #additionalEditor [id]="'additional-note-text-' + i" class="form-control mb-2" rows="10" style="min-height: 240px; resize: vertical" [(ngModel)]="note.note" [name]="'additionalNoteText-' + i" required></textarea>
+                      <button type="button" class="btn btn-sm btn-outline-danger" (click)="removeVisitEditorRow(additionalVisitNotes, i, $event)" [attr.aria-label]="'Remove additional note ' + (i + 1)">Remove note</button>
+                    </fieldset>
+                  }
+                  <button type="button" class="btn btn-outline-primary" (click)="additionalVisitNotes.push({note: '', authors: [], authored: ''})">Add another note</button>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" (click)="modal.dismiss()">Cancel</button>
+                  <button type="submit" class="btn btn-primary" [disabled]="notesForm.invalid">Done</button>
+                </div>
+              </form>
+            </ng-template>
+          </section>
+          </div>
           </div>
         }
 
@@ -124,24 +833,28 @@
           </div>
         }
 
-        <div class="col-md-3 mg-b-15">
-          <label class="form-label" for="vital-date">Date</label>
-          <input id="vital-date" type="date" class="form-control" [(ngModel)]="effectiveDate" name="effectiveDate" />
-        </div>
+        @if (kind !== 'visit') {
+          <div class="col-md-3 mg-b-15">
+            <label class="form-label" for="vital-date">Date</label>
+            <input id="vital-date" type="date" class="form-control" [(ngModel)]="effectiveDate" name="effectiveDate" />
+          </div>
+        }
 
-        <div class="col-12 mg-t-10">
+        <div class="col-12 mg-t-10" [class.visit-save-actions]="kind === 'visit'">
           <button type="submit" class="btn btn-az-primary" [disabled]="saving">
             {{ saving ? 'Saving…' : 'Save record' }}
           </button>
           <a routerLink="/medical-history" class="btn btn-outline-secondary mg-l-10">Cancel</a>
           <p class="tx-12 tx-gray-500 mg-t-15 mg-b-0">
             @if (isVital) { <span>Default units: {{ defaultUnitHint }}. </span> }
-            @if (!isVital) {
+            @if (kind === 'allergy' || kind === 'medication') {
               <span>
                 Stored in your words. Nothing is matched to a coded substance or medicine yet, so it waits for you to
                 confirm it before it joins your records.
               </span>
             }
+            @if (kind === 'implant') { <span>Stored as a US Core Implantable Device. Device identifiers are saved only when you provide them.</span> }
+            @if (kind === 'visit') { <span>Stored as a US Core Encounter. Visit details are saved only when you provide them.</span> }
             This does not send data to your providers — only this YourPHR instance.
           </p>
         </div>

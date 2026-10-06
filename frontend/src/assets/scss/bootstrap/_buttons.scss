@@ -26,7 +26,13 @@
   border-width: 1px;
   background-color: transparent;
 
-  @include hover-focus() { color: #fff; }
+  &:not(:disabled):not(.disabled) {
+    @include hover-focus() {
+      color: var(--bs-btn-hover-color);
+      background-color: var(--bs-btn-hover-bg);
+      border-color: var(--bs-btn-hover-border-color);
+    }
+  }
 }
 
 .btn-outline-indigo {

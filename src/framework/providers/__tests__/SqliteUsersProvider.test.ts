@@ -3,6 +3,24 @@ import Database from 'better-sqlite3-multiple-ciphers';
 import { SqliteUsersProvider } from '../SqliteUsersProvider.js';
 
 describe('SqliteUsersProvider — the accounts table', () => {
+  it('persists account-owned mappings across provider reloads, isolates users and deletes mappings with the account', async () => {
+    const db = new Database(':memory:');
+    const provider = new SqliteUsersProvider(db);
+    await provider.create({username: 'alice', passwordHash: 'h', tokenGeneration: 0, role: 'user'});
+    await provider.create({username: 'bob', passwordHash: 'h', tokenGeneration: 0, role: 'user'});
+    await provider.setTerminologyFile('alice', 'loinc', '/data/Loinc.csv');
+    const reloaded = new SqliteUsersProvider(db);
+    expect(await reloaded.terminologyFiles('alice')).toEqual({loinc: '/data/Loinc.csv'});
+    expect(await reloaded.terminologyFiles('bob')).toEqual({});
+    await reloaded.setTerminologyFile('alice', 'loinc', '/data/new.csv');
+    expect(await reloaded.terminologyFiles('alice')).toEqual({loinc: '/data/new.csv'});
+    await reloaded.setTerminologyFile('alice', 'loinc', '');
+    expect(await reloaded.terminologyFiles('alice')).toEqual({});
+    await reloaded.setTerminologyFile('alice', 'loinc', '/data/new.csv');
+    await reloaded.delete('alice');
+    expect(await reloaded.terminologyFiles('alice')).toEqual({});
+    db.close();
+  });
   it('creates, reads, lists, counts, sets hashes with or without a generation bump, deletes', async () => {
     const p = new SqliteUsersProvider(new Database(':memory:'));
     await p.initialize();

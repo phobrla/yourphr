@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { PATIENT_ENTRY_SOURCE, PatientEntryError, buildPatientRecord, buildPatientVital } from '../index.js';
+import { PATIENT_ENTRY_SOURCE, PatientEntryError, buildPatientRecord, buildPatientVital, validateVisitDiagnosisIds } from '../index.js';
 import { titleFor } from '../../server.js';
+import { parseVisitDiagnoses } from '../visit-diagnoses.js';
+import type { Encounter } from '@medplum/fhirtypes';
+import terminology from '../visit-terminology.json' with { type: 'json' };
 
 /** Fixed, so the default-time assertion is about the shape rather than the clock. */
 const NOW = new Date('2026-09-23T10:30:00.000Z');
@@ -75,6 +78,7 @@ describe('what it keeps when it cannot code what was said (yourphr#696)', () => 
     expect(observation.component).toEqual([
       { code: expect.objectContaining({ text: 'Systolic blood pressure' }), valueQuantity: { value: 128, unit: 'mm[Hg]', system: 'http://unitsofmeasure.org', code: 'mm[Hg]' } },
     ]);
+
     expect(sortTitle).toBe('Blood pressure 128 systolic mmHg');
     expect(review[0]).toContain('only the systolic half');
     expect(tagged(observation)).toBe(true);
@@ -124,6 +128,342 @@ describe('what it keeps when it cannot code what was said (yourphr#696)', () => 
     const { observation, review } = buildPatientVital({ vital: 'heart_rate', value: 64 }, NOW);
     expect(review).toEqual([]);
     expect(tagged(observation)).toBe(false);
+  });
+});
+
+describe('a manually entered visit', () => {
+  const visit = { kind: 'visit', name: 'Follow-up', visit_type: 'Consultation', visit_class: 'AMB' };
+  const patient = { subject: 'Patient/self-1' };
+
+  it('keeps multiple reasons, one chief complaint, and a single coded visit type', () => {
+    const {resource} = buildPatientRecord({
+      ...visit, visit_type_code: '185389009', visit_type: 'untrusted label',
+      visit_reasons: [
+        {text: 'Review my results'},
+        {text: 'My head hurts', code: '25064002', primary: true},
+      ],
+      visit_location_code: '22232009',
+      visit_diagnoses: [{system: terminology.diagnosis.systems[0]!.system, code: 'I10'}],
+    }, NOW, patient);
+    const encounter = resource as Encounter;
+    expect(encounter.type).toEqual([{text: 'Follow-up consultation', coding: [{system: 'http://snomed.info/sct', code: '185389009', display: 'Follow-up consultation'}]}]);
+    expect(encounter.reasonCode).toEqual([
+      {text: 'Review my results'},
+      {text: 'My head hurts', coding: [{system: 'http://snomed.info/sct', code: '25064002', display: 'Headache'}]},
+    ]);
+    expect(encounter.reasonReference).toEqual([{reference: '#chief-complaint', display: 'My head hurts'}]);
+    expect(encounter.contained?.find((item) => item.id === 'chief-complaint')).toMatchObject({
+      resourceType: 'Observation', status: 'final', valueString: 'My head hurts',
+      code: {coding: [{system: 'http://loinc.org', code: '10154-3'}]},
+      subject: {reference: patient.subject}, encounter: {reference: '#'},
+      meta: {tag: [{code: 'pghd'}]},
+    });
+    expect(encounter.contained?.map((item) => item.resourceType)).toEqual(['Condition', 'Location', 'Observation']);
+  });
+
+  it('keeps legacy free text without inventing a chief complaint or codes', () => {
+    const encounter = buildPatientRecord(visit, NOW, patient).resource as Encounter;
+    expect(encounter.reasonCode).toEqual([{text: 'Follow-up'}]);
+    expect(encounter.type).toEqual([{text: 'Consultation'}]);
+    expect(encounter.reasonReference).toBeUndefined();
+  });
+
+  it('rejects invalid reason codes, types, empty reasons and multiple primary complaints', () => {
+    for (const changes of [
+      {visit_type_code: 'bad'},
+      {visit_reasons: []},
+      {visit_reasons: [{text: ''}]},
+      {visit_reasons: [{text: 'A', code: 'bad'}]},
+      {visit_reasons: [{text: 'A', primary: true}, {text: 'B', primary: true}]},
+    ]) {
+      expect(() => buildPatientRecord({...visit, ...changes}, NOW, patient)).toThrow();
+    }
+  });
+
+  it('stores discrete ICD diagnoses and individual expected dates without implying actual resolution', () => {
+    const { resource } = buildPatientRecord({
+      ...visit, visit_location_code: '22232009',
+      visit_diagnosis_ids: ['own-condition'],
+      visit_diagnoses: [
+        { condition_id: 'own-condition', expected_end_date: '2026-12-01' },
+        { system: 'http://hl7.org/fhir/sid/icd-10-cm', code: ' j069 ', display: 'Upper respiratory infection', expected_end_date: '2026-10-12' },
+        { system: 'http://hl7.org/fhir/sid/icd-9-cm', code: '465.9', expected_end_date: '2026-10-14' },
+      ],
+    }, NOW, patient);
+    const encounter = resource as Encounter;
+    expect(encounter.diagnosis).toEqual([
+      { condition: { reference: 'Condition/own-condition' }, extension: [{url: terminology.diagnosis.expectedEndDateExtension, valueDate: '2026-12-01'}] },
+      { condition: { reference: '#visit-diagnosis-1', display: 'Upper respiratory infection' }, extension: [{url: terminology.diagnosis.expectedEndDateExtension, valueDate: '2026-10-12'}] },
+      { condition: { reference: '#visit-diagnosis-2', display: '465.9' }, extension: [{url: terminology.diagnosis.expectedEndDateExtension, valueDate: '2026-10-14'}] },
+    ]);
+    expect(encounter.contained).toHaveLength(3);
+    expect(encounter.contained?.[0]).toMatchObject({
+      resourceType: 'Condition', id: 'visit-diagnosis-1', subject: {reference: patient.subject}, asserter: {reference: patient.subject},
+      code: { coding: [{system: 'http://hl7.org/fhir/sid/icd-10-cm', code: 'J06.9', display: 'Upper respiratory infection'}], text: 'Upper respiratory infection' },
+      category: [{coding: [{code: 'encounter-diagnosis'}]}],
+      meta: { tag: [{code: 'pghd'}] },
+    });
+    expect(encounter.contained?.[1]).toMatchObject({
+      code: { coding: [{system: 'http://hl7.org/fhir/sid/icd-9-cm', code: '465.9'}] },
+    });
+    expect(encounter.contained?.[2]).toMatchObject({resourceType: 'Location', id: 'visit-location'});
+    for (const condition of encounter.contained?.filter((resource) => resource.resourceType === 'Condition') ?? []) {
+      expect(condition).not.toHaveProperty('abatementDateTime');
+      expect(condition).not.toHaveProperty('clinicalStatus');
+      expect(condition).not.toHaveProperty('meta.lastUpdated');
+    }
+  });
+
+  it('allows optional descriptions and dates and normalizes ICD spellings including U, V, and E codes', () => {
+    for (const [system, code, expected] of [
+      ['icd-10-cm', 'U071', 'U07.1'], ['icd-10-cm', 'S52521A', 'S52.521A'],
+      ['icd-10-cm', 'I10', 'I10'], ['icd-9-cm', '25000', '250.00'],
+      ['icd-9-cm', 'V700', 'V70.0'], ['icd-9-cm', 'E8120', 'E812.0'],
+    ]) {
+      expect(parseVisitDiagnoses([{ system: `http://hl7.org/fhir/sid/${system}`, code }])).toEqual([
+        { system: `http://hl7.org/fhir/sid/${system}`, code: expected },
+      ]);
+    }
+    const { resource } = buildPatientRecord({
+      ...visit, visit_diagnoses: [{system: 'http://hl7.org/fhir/sid/icd-10-cm', code: 'I10'}],
+    }, NOW, patient);
+    expect((resource as Encounter).diagnosis?.[0]).not.toHaveProperty('extension');
+  });
+
+  it('rejects malformed rows, unsupported systems, impossible dates and ambiguous links', () => {
+    for (const value of [null, {}, 'I10', [null], [[]], [{}], [{code: 'I10'}],
+      [{system: 'http://snomed.info/sct', code: '123456'}],
+      [{system: 'toString', code: 'I10'}], [{system: '__proto__', code: 'I10'}],
+      [{system: 'http://hl7.org/fhir/sid/icd-10-cm', code: '123.4'}],
+      [{system: 'http://hl7.org/fhir/sid/icd-9-cm', code: 'J06.9'}],
+      [{condition_id: '../another'}], [{condition_id: 'own', code: 'I10'}],
+      [{condition_id: 'own', expected_end_date: '2026-02-30'}],
+      [{condition_id: 'own', expected_end_date: '2026-13-01'}],
+      [{condition_id: 'own', expected_end_date: '2026-1-1'}],
+      [{condition_id: 'own', expected_end_date: '0000-01-01'}],
+      [{condition_id: 'own', expected_end_date: 123}],
+      [{system: 'http://hl7.org/fhir/sid/icd-10-cm', code: 123}],
+    ]) {
+      expect(() => parseVisitDiagnoses(value)).toThrow(PatientEntryError);
+    }
+    expect(parseVisitDiagnoses([{condition_id: 'own', expected_end_date: '2028-02-29'}])).toHaveLength(1);
+  });
+
+  it('refuses duplicate codes and conflicting estimates, while retaining legacy diagnosis links', () => {
+    const code = {system: 'http://hl7.org/fhir/sid/icd-10-cm', code: 'J06.9'};
+    expect(() => buildPatientRecord({
+      ...visit, visit_diagnoses: [code, {...code, code: 'j069'}],
+    }, NOW, patient)).toThrow('more than once');
+    expect(() => buildPatientRecord({
+      ...visit, visit_diagnoses: [
+        {condition_id: 'own', expected_end_date: '2026-10-10'}, {condition_id: 'own', expected_end_date: '2026-10-11'},
+      ],
+    }, NOW, patient)).toThrow('conflicting expected end dates');
+  });
+
+  it('stores SNOMED location type on a referenced Location, not on Encounter.class', () => {
+    const { resource } = buildPatientRecord({
+      ...visit, visit_location: ' Cardiology clinic ', visit_location_code: '33022008',
+      visit_disposition_code: '306689006',
+    }, NOW, patient);
+    expect(resource).toMatchObject({
+      status: 'finished',
+      class: { system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB' },
+      contained: [{
+        resourceType: 'Location', id: 'visit-location', name: 'Cardiology clinic',
+        type: [{
+          coding: [
+            { system: 'http://snomed.info/sct', code: '33022008', display: 'Hospital-based outpatient department' },
+            { system: 'http://terminology.hl7.org/CodeSystem/v3-RoleCode', code: 'OF', display: 'Outpatient facility' },
+          ],
+          text: 'Hospital-based outpatient department',
+        }],
+      }],
+      location: [{ location: { reference: '#visit-location', display: 'Cardiology clinic' } }],
+      hospitalization: { dischargeDisposition: {
+        coding: [{ system: 'http://snomed.info/sct', code: '306689006', display: 'Discharge to home' }],
+        text: 'Discharge to home',
+      } },
+    });
+  });
+
+  it('retains discharge details alongside the selected code and needs no location name', () => {
+    const { resource } = buildPatientRecord({
+      ...visit, visit_location_code: '264362003', visit_disposition_code: '306694006',
+      visit_disposition: ' Nursing home with family transport ',
+    }, NOW, patient);
+    expect(resource).toMatchObject({
+      contained: [{ resourceType: 'Location', name: 'Home' }],
+      location: [{ location: { reference: '#visit-location', display: 'Home' } }],
+      hospitalization: { dischargeDisposition: {
+        coding: [{ system: 'http://snomed.info/sct', code: '306694006', display: 'Discharge to nursing home' }],
+        text: 'Nursing home with family transport',
+      } },
+    });
+  });
+
+  it('does not invent optional location or discharge facts', () => {
+    const { resource } = buildPatientRecord(visit, NOW, patient);
+    expect(resource).not.toHaveProperty('location');
+    expect(resource).not.toHaveProperty('contained');
+    expect(resource).not.toHaveProperty('hospitalization');
+  });
+
+  it('rejects unknown and malformed codes instead of silently keeping uncoded data', () => {
+    for (const value of ['not-a-code', 'AMB', '306689006', ' ', null, 22232009, {}]) {
+      expect(() => buildPatientRecord(
+        { ...visit, visit_location_code: value } as Parameters<typeof buildPatientRecord>[0], NOW, patient,
+      )).toThrow('Choose a valid location type');
+    }
+    for (const value of ['not-a-code', 'home', '22232009', ' ', null, 306689006, {}]) {
+      expect(() => buildPatientRecord(
+        { ...visit, visit_disposition_code: value } as Parameters<typeof buildPatientRecord>[0], NOW, patient,
+      )).toThrow('Choose a valid discharge disposition');
+    }
+    expect(() => buildPatientRecord({ ...visit, visit_class: '22232009' }, NOW, patient)).toThrow('Choose a visit setting');
+    expect(() => buildPatientRecord({ ...visit, visit_status: '306689006' }, NOW, patient)).toThrow('Choose a valid visit status');
+  });
+
+  it('preserves plain-note line breaks and escapes HTML for older clients', () => {
+    const {resource} = buildPatientRecord({
+      kind: 'visit', name: 'Follow-up', visit_type: 'Office', visit_class: 'AMB',
+      note: 'Line one\n<script>unsafe</script>\nLine three',
+    }, NOW, {subject: 'Patient/self-1'});
+    if (resource.resourceType !== 'Encounter') throw new Error('Expected an Encounter');
+    expect(resource.text?.div).toContain('Line one<br />&lt;script&gt;unsafe&lt;/script&gt;<br />Line three');
+  });
+
+  it('creates a patient-reported FHIR Encounter linked to the selected provider and organization', () => {
+    const { resource, sortTitle, review } = buildPatientRecord({
+      kind: 'visit',
+      name: 'Cardiology follow-up',
+      visit_type: 'Office visit',
+      visit_class: 'AMB',
+      visit_status: 'finished',
+      effective_date_time: '2026-09-20',
+      visit_end_date_time: '2026-09-20',
+      visit_identifier: 'VISIT-42',
+      visit_location: 'Cardiology clinic',
+      visit_disposition: 'Discharged home',
+      visit_diagnosis_ids: ['condition-1', ' condition-2 ', 'condition-1'],
+      provider_id: 'practitioner-123',
+      provider_name: 'Dr. Patel',
+      organization_id: 'org-4',
+      organization_name: 'Heart Clinic',
+      note: 'Annual follow-up',
+    }, NOW, { subject: 'Patient/self-1' });
+
+    expect(resource).toMatchObject({
+      resourceType: 'Encounter',
+      status: 'finished',
+      meta: {
+        profile: ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter'],
+        lastUpdated: NOW.toISOString(),
+      },
+      class: { system: 'http://terminology.hl7.org/CodeSystem/v3-ActCode', code: 'AMB' },
+      type: [{ text: 'Office visit' }],
+      reasonCode: [{ text: 'Cardiology follow-up' }],
+      subject: { reference: 'Patient/self-1' },
+      identifier: [{ value: 'VISIT-42' }],
+      period: { start: '2026-09-20', end: '2026-09-20' },
+      participant: [{ individual: { reference: 'Practitioner/practitioner-123', display: 'Dr. Patel' } }],
+      serviceProvider: { reference: 'Organization/org-4', display: 'Heart Clinic' },
+      location: [{ location: { display: 'Cardiology clinic' } }],
+      hospitalization: { dischargeDisposition: { text: 'Discharged home' } },
+      diagnosis: [
+        { condition: { reference: 'Condition/condition-1' } },
+        { condition: { reference: 'Condition/condition-2' } },
+      ],
+      text: { status: 'generated', div: '<div xmlns="http://www.w3.org/1999/xhtml">Annual follow-up</div>' },
+    });
+    expect(sortTitle).toBe('Cardiology follow-up');
+    expect(review).toEqual([]);
+  });
+
+  it('refuses a visit with no setting rather than guessing its class', () => {
+    expect(() => buildPatientRecord({ kind: 'visit', name: 'Annual visit', visit_type: 'Office visit' }, NOW, { subject: 'Patient/self-1' })).toThrow('Choose a visit setting');
+  });
+
+  it('requires a type and a patient subject before it can claim the US Core profile', () => {
+    expect(() => buildPatientRecord({ kind: 'visit', name: 'Annual visit', visit_class: 'AMB' }, NOW, { subject: 'Patient/self-1' })).toThrow('Name the type of visit');
+    expect(() => buildPatientRecord({ kind: 'visit', name: 'Annual visit', visit_type: 'Office visit', visit_class: 'AMB' }, NOW)).toThrow('patient record is required');
+  });
+
+  it('keeps an end date only when it is not earlier than the visit start', () => {
+    const { resource, review } = buildPatientRecord({
+      kind: 'visit',
+      name: 'Annual visit',
+      visit_type: 'Office visit',
+      visit_class: 'AMB',
+      effective_date_time: '2026-09-21',
+      visit_end_date_time: '2026-09-20',
+    }, NOW, { subject: 'Patient/self-1' });
+    expect(resource).toMatchObject({ period: { start: '2026-09-21' } });
+    expect((resource as { period?: { end?: string } }).period?.end).toBeUndefined();
+    expect(review).toContain('the visit end is earlier than its start, so the end time needs review');
+  });
+
+  it('accepts every visit class offered by the form', () => {
+    for (const visit_class of ['AMB', 'OBSENC', 'EMER', 'PRENC', 'IMP', 'HH', 'SS', 'VR']) {
+      expect(() => buildPatientRecord({
+        kind: 'visit', name: 'Visit', visit_type: 'Consultation', visit_class,
+      }, NOW, { subject: 'Patient/self-1' })).not.toThrow();
+    }
+  });
+
+  it('rejects malformed or non-owned visit diagnosis references', () => {
+    const ownIds = new Set(['condition-1']);
+    expect(() => validateVisitDiagnosisIds('condition-1', ownIds)).toThrow('Choose valid diagnoses');
+    expect(() => validateVisitDiagnosisIds(['condition-1', ''], ownIds)).toThrow('Choose valid diagnoses');
+    expect(() => validateVisitDiagnosisIds(['condition-2'], ownIds)).toThrow('not in your own records');
+    expect(validateVisitDiagnosisIds([' condition-1 ', 'condition-1'], ownIds)).toEqual(['condition-1']);
+  });
+});
+
+describe('a manually entered implant', () => {
+  it('creates a US Core Implantable Device with the patient and identifiers they supplied', () => {
+    const { resource, sortTitle, review } = buildPatientRecord({
+      kind: 'implant',
+      name: 'Coronary artery stent',
+      implant_status: 'active',
+      implant_device_identifier: '00844588003288',
+      implant_distinct_identifier: 'A9999',
+      implant_serial_number: 'SN456',
+      implant_lot_number: 'LOT123',
+      implant_manufacture_date: '2022-01-15',
+      implant_expiration_date: '2032-01-15',
+    }, NOW, { subject: 'Patient/self-1' });
+
+    expect(resource).toMatchObject({
+      resourceType: 'Device',
+      status: 'active',
+      type: { text: 'Coronary artery stent' },
+      patient: { reference: 'Patient/self-1' },
+      udiCarrier: [{ deviceIdentifier: '00844588003288' }],
+      distinctIdentifier: 'A9999',
+      serialNumber: 'SN456',
+      lotNumber: 'LOT123',
+      manufactureDate: '2022-01-15',
+      expirationDate: '2032-01-15',
+      meta: { profile: ['http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device'] },
+    });
+    expect(sortTitle).toBe('Coronary artery stent');
+    expect(review).toEqual([]);
+  });
+
+  it('uses unknown status and does not invent optional identifiers', () => {
+    const { resource } = buildPatientRecord({
+      kind: 'implant',
+      name: 'Pacemaker',
+    }, NOW, { subject: 'Patient/self-1' });
+    expect(resource).toMatchObject({ resourceType: 'Device', status: 'unknown', type: { text: 'Pacemaker' } });
+    expect(resource).not.toHaveProperty('udiCarrier');
+    expect(resource).not.toHaveProperty('serialNumber');
+  });
+
+  it('requires a device type and patient subject', () => {
+    expect(() => buildPatientRecord({ kind: 'implant' }, NOW, { subject: 'Patient/self-1' })).toThrow('Name the implant');
+    expect(() => buildPatientRecord({ kind: 'implant', name: 'Pacemaker' }, NOW)).toThrow('patient record is required');
   });
 });
 

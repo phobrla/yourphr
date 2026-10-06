@@ -26,6 +26,7 @@ export const MEDICAL_HISTORY_TYPES = [
   'MedicationStatement',
   'Procedure',
   'Immunization',
+  'Device',
   'DocumentReference',
 ];
 

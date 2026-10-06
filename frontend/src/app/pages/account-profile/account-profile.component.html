@@ -206,6 +206,40 @@
                 </div>
               </div>
             </div>
+            <div class="col-12 mg-b-20">
+              <section class="card" aria-labelledby="terminology-files-title">
+                <div class="card-header"><h6 id="terminology-files-title" class="card-title mg-b-0">Terminology file mappings</h6></div>
+                <div class="card-body">
+                  <p>Enter and save the locations of your own licensed catalog files. These mappings belong to your account; changing them does not change another account's mappings or shared server configuration.</p>
+                  <p class="text-muted">Enter absolute paths as seen by the YourPHR server. For containers, mount the files and use the paths inside the container, not your computer's paths. This screen does not upload files, store credentials, verify licenses or activate catalog search. The existing limited menus remain until catalog import is implemented.</p>
+                  @if (terminologyLoading) { <p role="status">Loading file mappings…</p> }
+                  @if (terminologyError) {
+                    <div role="alert" class="alert alert-danger">{{ terminologyError }}</div>
+                    <button type="button" class="btn btn-outline-secondary mb-3" (click)="loadTerminologyFiles()">Retry loading mappings</button>
+                  }
+                  <div class="row">
+                    @for (file of terminologyFiles; track file.key) {
+                      <div class="col-lg-6 mb-3">
+                        <div class="border rounded p-3 h-100">
+                          <h6>{{ file.label }}</h6>
+                          <p class="text-break mb-2">{{ file.format }}</p>
+                          <p><a [href]="file.signup" target="_blank" rel="noopener noreferrer">Account / license request</a> · <a [href]="file.download" target="_blank" rel="noopener noreferrer">Get files</a> · <a [href]="file.license" target="_blank" rel="noopener noreferrer">License terms</a></p>
+                            <form (ngSubmit)="saveTerminologyFile(file)">
+                              <label [for]="file.key">Server-side file location</label>
+                              <input [id]="file.key" class="form-control mb-2" [(ngModel)]="file.path" name="path" autocomplete="off" placeholder="/data/terminology/…" [disabled]="!terminologyLoaded || file.saving" />
+                              <p class="text-muted mb-2">{{ file.savedPath ? 'Mapped; not imported or validated.' : 'Not mapped.' }}</p>
+                              @if (file.error) { <div role="alert" class="alert alert-danger">{{ file.error }}</div> }
+                              @if (file.message) { <p role="status">{{ file.message }}</p> }
+                              <button type="submit" class="btn btn-outline-primary btn-sm" [disabled]="!terminologyLoaded || file.saving">{{ file.saving ? 'Saving…' : 'Save mapping' }}</button>
+                              <small class="d-block text-muted mt-2">Clear the location and save to remove its mapping.</small>
+                            </form>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </section>
+            </div>
             <!-- Enrollee data controls (#431). Connections live on /sources — not as cards here. -->
             <div class="col-lg-4 mg-b-20">
               <div class="card h-100">

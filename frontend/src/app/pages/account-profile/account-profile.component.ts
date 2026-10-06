@@ -6,6 +6,7 @@ import {FastenApiService} from '../../services/fasten-api.service';
 import {AccountUser} from '../../models/fasten/account-user';
 import {AccessEvent} from '../../models/fasten/access-event';
 import {LegalConsentStatus} from '../../models/fasten/legal-consent';
+import terminologyFiles from '../../../../../src/config/terminology-files.json';
 
 // Account Profile — the system *user account* (login/identity/lifecycle), distinct from the medical
 // "Patient Profile" (the FHIR Patient record). Includes PP/ToS consent grant/revoke (#427).
@@ -19,6 +20,12 @@ import {LegalConsentStatus} from '../../models/fasten/legal-consent';
 export class AccountProfileComponent implements OnInit {
   loading = {page: false, delete: false};
   user: AccountUser = {};
+  terminologyFiles = terminologyFiles.map(file => ({
+    ...file, path: '', savedPath: '', saving: false, message: '', error: '',
+  }));
+  terminologyLoading = false;
+  terminologyLoaded = false;
+  terminologyError = '';
 
   // Change-password form state.
   pw = {current: '', next: '', confirm: ''};
@@ -57,6 +64,7 @@ export class AccountProfileComponent implements OnInit {
       next: (u) => {
         this.user = u || {};
         this.loading.page = false;
+        this.loadTerminologyFiles();
       },
       error: () => {
         this.loading.page = false;
@@ -64,6 +72,53 @@ export class AccountProfileComponent implements OnInit {
     });
     this.loadLegalConsent();
     this.loadAccessLog();
+  }
+
+  loadTerminologyFiles(): void {
+    this.terminologyLoading = true;
+    this.terminologyLoaded = false;
+    this.terminologyError = '';
+    this.fastenApi.getAccountTerminologyFiles().subscribe({
+      next: mappings => {
+        for (const file of this.terminologyFiles) {
+          const path = mappings[file.key] ?? '';
+          if (typeof path !== 'string') {
+            this.terminologyError = 'Terminology mappings are unavailable in this server build.';
+            this.terminologyLoading = false;
+            return;
+          }
+          file.path = file.savedPath = path;
+        }
+        this.terminologyLoading = false;
+        this.terminologyLoaded = true;
+      },
+      error: err => {
+        this.terminologyLoading = false;
+        this.terminologyError = err?.error?.error || 'Could not load terminology file mappings.';
+      },
+    });
+  }
+
+  saveTerminologyFile(file: typeof this.terminologyFiles[number]): void {
+    file.error = '';
+    file.message = '';
+    file.saving = true;
+    const path = file.path.trim();
+    this.fastenApi.setAccountTerminologyFile(file.key, path).subscribe({
+      next: success => {
+        file.saving = false;
+        if (!success) {
+          file.error = 'The server did not save this mapping.';
+          return;
+        }
+        file.path = file.savedPath = path;
+        file.message = path ? 'Mapping saved. Catalog has not been imported or validated.' : 'Mapping removed.';
+      },
+      error: err => {
+        file.saving = false;
+        file.error = err?.error?.error || 'Could not save terminology file mapping.';
+      },
+    });
   }
 
   loadAccessLog(): void {

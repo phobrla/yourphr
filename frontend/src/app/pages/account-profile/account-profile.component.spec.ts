@@ -19,10 +19,12 @@ describe('AccountProfileComponent', () => {
     api = jasmine.createSpyObj('FastenApiService', [
       'getCurrentUser', 'deleteAccount', 'getSummary', 'getResources', 'changePassword',
       'getLegalConsent', 'grantLegalConsent', 'revokeLegalConsent', 'signOutEverywhere',
-      'getAccessLog', 'trimAccessLog',
+      'getAccessLog', 'trimAccessLog', 'getAccountTerminologyFiles', 'setAccountTerminologyFile',
     ]);
     api.signOutEverywhere.and.returnValue(of(true));
     api.getAccessLog.and.returnValue(of([]));
+    api.getAccountTerminologyFiles.and.returnValue(of({}));
+    api.setAccountTerminologyFile.and.returnValue(of(true));
     // "Sign out everywhere" (#508) clears the local token after the server revokes it, so the
     // component now depends on AuthService. Stubbed rather than real — the real one wants an HTTP
     // client token that this TestBed does not provide.
@@ -75,6 +77,68 @@ describe('AccountProfileComponent', () => {
 
   it('computes initials from the full name', () => {
     expect(component.initials).toBe('JW');
+  });
+
+  it('shows a mapping for every terminology file and saves individual mappings', () => {
+    expect(component.terminologyFiles.length).toBe(6);
+    expect(component.terminologyLoaded).toBeTrue();
+    const file = component.terminologyFiles[0];
+    file.path = ' /data/terminology/Loinc.csv ';
+    component.saveTerminologyFile(file);
+    expect(api.setAccountTerminologyFile).toHaveBeenCalledWith(file.key, '/data/terminology/Loinc.csv');
+    expect(file.savedPath).toBe('/data/terminology/Loinc.csv');
+    expect(file.message).toContain('not been imported');
+    file.path = '';
+    component.saveTerminologyFile(file);
+    expect(file.savedPath).toBe('');
+    expect(file.message).toBe('Mapping removed.');
+  });
+
+  it('keeps the saved mapping on failure and exposes load/save errors', () => {
+    const file = component.terminologyFiles[0];
+    file.path = 'relative.csv';
+    api.setAccountTerminologyFile.and.returnValue(throwError(() => ({error: {error: 'absolute path required'}})));
+    component.saveTerminologyFile(file);
+    expect(file.error).toBe('absolute path required');
+    expect(file.savedPath).toBe('');
+    api.getAccountTerminologyFiles.and.returnValue(throwError(() => new Error('offline')));
+    component.loadTerminologyFiles();
+    expect(component.terminologyLoaded).toBeFalse();
+    expect(component.terminologyError).toContain('Could not load');
+  });
+
+  it('shows editable mappings to regular members', async () => {
+    api.getAccountTerminologyFiles.calls.reset();
+    api.getCurrentUser.and.returnValue(of({username: 'member', role: 'user'}));
+    component.ngOnInit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(api.getAccountTerminologyFiles).toHaveBeenCalled();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.textContent).toContain('Terminology file mappings');
+    expect(element.querySelector<HTMLInputElement>('[id="yourphr.terminology.loinc.table"]')!.disabled).toBeFalse();
+  });
+
+  it('loads previously saved account paths for editing', async () => {
+    api.getAccountTerminologyFiles.and.returnValue(of({'yourphr.terminology.loinc.table': '/data/Loinc.csv'}));
+    component.loadTerminologyFiles();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const element: HTMLElement = fixture.nativeElement;
+    const input = element.querySelector<HTMLInputElement>('[id="yourphr.terminology.loinc.table"]')!;
+    expect(input.disabled).toBeFalse();
+    expect(input.value).toBe('/data/Loinc.csv');
+  });
+
+  it('refuses editing when loading fails', async () => {
+    api.getAccountTerminologyFiles.and.returnValue(throwError(() => new Error('offline')));
+    component.loadTerminologyFiles();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(component.terminologyLoaded).toBeFalse();
+    expect(component.terminologyError).toContain('Could not load');
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector<HTMLInputElement>('[id="yourphr.terminology.loinc.table"]')!.disabled).toBeTrue();
   });
 
   // #508: the server has already invalidated this browser's token, so the component must clear the

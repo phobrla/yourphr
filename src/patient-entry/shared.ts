@@ -14,8 +14,57 @@ import type { Resource } from '@medplum/fhirtypes';
  * `vital` is the older name for "what this record is about" and is still accepted, because a v2-era
  * client posts it; `name` is the same field under a name that makes sense for an allergy.
  */
+export interface VisitDiagnosisEntry {
+  condition_id?: string;
+  system?: string;
+  code?: string;
+  display?: string;
+  expected_end_date?: string;
+}
+
+export interface VisitObservationEntry {
+  kind: string;
+  value?: number;
+  systolic?: number;
+  diastolic?: number;
+  unit?: string;
+  date?: string;
+  measured_at?: string;
+  note?: string;
+}
+
+export interface VisitLabEntry {
+  code: string;
+  display: string;
+  result_type: 'quantity' | 'text';
+  value?: number;
+  text?: string;
+  unit?: string;
+  ucum_code?: string;
+  comparator?: '<' | '<=' | '>=' | '>';
+  status: 'preliminary' | 'final' | 'amended' | 'corrected' | 'unknown';
+  collected?: string;
+  issued?: string;
+  reference_range?: string;
+  specimen?: string;
+  laboratory?: string;
+  note?: string;
+}
+
+export interface VisitNoteAuthor {
+  provider_id?: string;
+  name?: string;
+}
+
+export interface VisitNoteEntry {
+  note: string;
+  note_format?: 'plain' | 'markdown';
+  authors?: VisitNoteAuthor[];
+  authored?: string;
+}
+
 export interface PatientEntryRequest {
-  /** `vital`, `allergy` or `medication`. Anything else is kept and flagged rather than refused. */
+  /** A supported entry kind. Anything else is kept and flagged rather than refused. */
   kind?: string;
   vital?: string;
   name?: string;
@@ -25,6 +74,38 @@ export interface PatientEntryRequest {
   unit?: string;
   /** Medication only: whether they are taking it. Absent means they did not say. */
   status?: string;
+  visit_class?: string;
+  visit_type?: string;
+  visit_type_code?: string;
+  visit_reasons?: {text: string; code?: string; primary?: boolean}[];
+  visit_observations?: VisitObservationEntry[];
+  visit_labs?: VisitLabEntry[];
+  visit_note_authors?: VisitNoteAuthor[];
+  visit_note_authored?: string;
+  visit_notes?: VisitNoteEntry[];
+  visit_billing?: {kind: 'revenue' | 'type-of-bill'; code: string; description?: string}[];
+  visit_status?: string;
+  visit_identifier?: string;
+  visit_end_date_time?: string;
+  visit_location?: string;
+  visit_location_code?: string;
+  visit_disposition?: string;
+  visit_disposition_code?: string;
+  visit_diagnosis_ids?: string[];
+  visit_diagnoses?: VisitDiagnosisEntry[];
+  implant_status?: string;
+  implant_device_identifier?: string;
+  implant_distinct_identifier?: string;
+  implant_serial_number?: string;
+  implant_lot_number?: string;
+  implant_manufacture_date?: string;
+  implant_expiration_date?: string;
+  provider_id?: string;
+  provider_name?: string;
+  organization_id?: string;
+  organization_name?: string;
+  note?: string;
+  note_format?: 'plain' | 'markdown';
   /** A device of theirs, by id, that this reading came from (yourphr#764). */
   device?: string;
   /** A device by the name they call it. The server reuses one of that name or makes it. */

@@ -2,10 +2,9 @@
  * What the PATIENT enters about themselves, turned into the record FHIR already has for it
  * (yourphr#696, #763; the product's #313).
  *
- * A home vital is an Observation, built here; an allergy is an AllergyIntolerance and a medication a
- * MedicationStatement, built in their own files and reached through `buildPatientRecord`. The rules
- * they share — patient-reported marks, keep what was said, invent nothing, quarantine what is
- * incomplete — live in `shared.ts`.
+ * A home vital is an Observation; an allergy, medication, visit, or implant is its corresponding
+ * FHIR resource, built in its own file and reached through `buildPatientRecord`. The rules they
+ * share — patient-generated marks, keep what was said, invent nothing — live in `shared.ts`.
  *
  * "Add record" is a primary call to action in three places in the app, and its form posted to a
  * route this stack never had — so the form filled in, submitted, and 404'd. This is the half that
@@ -28,7 +27,13 @@
  */
 import type { Observation, Resource } from '@medplum/fhirtypes';
 import { buildPatientAllergy } from './allergy.js';
+import { buildPatientImplant } from './implant.js';
 import { buildPatientMedication } from './medication.js';
+import { buildPatientVisit } from './visit.js';
+import { addVisitObservations } from './visit-observations.js';
+import { addVisitClinicalContent } from './visit-clinical.js';
+export { validateVisitDiagnosisIds } from './visit.js';
+export { parseVisitDiagnoses } from './visit-diagnoses.js';
 import {
   type BuiltRecord,
   type PatientEntryContext,
@@ -83,6 +88,9 @@ interface VitalSpec {
 /** The five the form offers. Aliases are Go's, kept so a v2-era client still works. */
 const VITALS = new Map<string, VitalSpec>(Object.entries({
   body_weight: { code: '29463-7', display: 'Body weight', defaultUnit: 'kg' },
+  body_height: { code: '8302-2', display: 'Body height', defaultUnit: 'cm' },
+  body_mass_index: { code: '39156-5', display: 'Body mass index (BMI) [Ratio]', defaultUnit: 'kg/m2' },
+  respiratory_rate: { code: '9279-1', display: 'Respiratory rate', defaultUnit: '/min' },
   weight: { code: '29463-7', display: 'Body weight', defaultUnit: 'kg' },
   heart_rate: { code: '8867-4', display: 'Heart rate', defaultUnit: '/min' },
   pulse: { code: '8867-4', display: 'Heart rate', defaultUnit: '/min' },
@@ -133,8 +141,12 @@ export interface BuiltEntry {
 const KINDS = new Map<string, (req: PatientEntryRequest, now: Date, context: PatientEntryContext) => BuiltRecord>([
   ['allergy', buildPatientAllergy],
   ['allergies', buildPatientAllergy],
+  ['implant', buildPatientImplant],
+  ['implants', buildPatientImplant],
   ['medication', buildPatientMedication],
   ['medications', buildPatientMedication],
+  ['visit', buildPatientVisit],
+  ['encounter', buildPatientVisit],
 ]);
 
 /**
@@ -145,10 +157,25 @@ const KINDS = new Map<string, (req: PatientEntryRequest, now: Date, context: Pat
  * person's words and flagged, because losing what they said is the one outcome that is never
  * acceptable. What it is never is silently reshaped into something it is not.
  */
-export function buildPatientRecord(req: PatientEntryRequest, now = new Date(), context: PatientEntryContext = { subject: '' }): BuiltRecord {
+export function buildPatientRecord(req: PatientEntryRequest, now = new Date(), context: PatientEntryContext = { subject: '' }, visitNoteNarrative?: string, noteNarratives?: (string | undefined)[]): BuiltRecord {
   const kind = (req.kind ?? 'vital').trim().toLowerCase() || 'vital';
+  const isVisit = kind === 'visit' || kind === 'encounter';
+  if (req.visit_observations !== undefined && !isVisit) {
+    throw new PatientEntryError('Visit measurements require an encounter.');
+  }
+  if (!isVisit && (req.visit_labs !== undefined || req.visit_note_authors !== undefined || req.visit_note_authored !== undefined || req.visit_notes !== undefined)) {
+    throw new PatientEntryError('Lab results and note attribution require an encounter.');
+  }
   const builder = KINDS.get(kind);
-  if (builder) return builder(req, now, context);
+  if (builder) {
+    const built = builder(req, now, context);
+    if (built.resource.resourceType === 'Encounter') {
+      if (visitNoteNarrative) built.resource.text = {status: 'additional', div: visitNoteNarrative};
+      addVisitObservations(built, req, now, context, buildPatientVital);
+      addVisitClinicalContent(built.resource, req, now, noteNarratives);
+    }
+    return built;
+  }
   const built = buildPatientVital(req, now, context);
   return { resource: built.observation as Resource, sortTitle: built.sortTitle, review: built.review };
 }
