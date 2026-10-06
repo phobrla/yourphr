@@ -4,7 +4,9 @@ Open work in [jwilleke/yourphr](https://github.com/jwilleke/yourphr), ranked. Ge
 
 ## 🔴 P0 — Security & Critical
 
+- [#819](https://github.com/jwilleke/yourphr/issues/819) — [security] webpack-dev-middleware — 1 open advisory in the frontend lockfile (high)
 - [#507](https://github.com/jwilleke/yourphr/issues/507) — [FEATURE] Authentication policy survey: password reset, MFA, re-auth, audit — decide what to build
+- [#863](https://github.com/jwilleke/yourphr/issues/863) — [BUG] Epic paused production for app 56252 at all 519 organizations — it selects APIs outside USCDI v3 automatic distribution
 - [#657](https://github.com/jwilleke/yourphr/issues/657) — [FEATURE] Chat over records as an MCP server — the patient's own AI client connects, YourPHR transmits nothing
 
 ## 🟣 Epics
@@ -18,6 +20,10 @@ Open work in [jwilleke/yourphr](https://github.com/jwilleke/yourphr), ranked. Ge
 
 ## 🟠 P1
 
+- [#864](https://github.com/jwilleke/yourphr/issues/864) — [SECURITY] Stop GitHub Actions from approving pull requests
+- [#862](https://github.com/jwilleke/yourphr/issues/862) — [FEATURE] Device-grant scopes use SMART on FHIR v2 names: patient/Observation.c for connected devices
+- [#861](https://github.com/jwilleke/yourphr/issues/861) — [FEATURE] Pause a connected device after 90 days without an upload, not 14
+- [#860](https://github.com/jwilleke/yourphr/issues/860) — [FEATURE] A connected device's grant lasts until revoked: drop the 30-day term and its reminders
 - [#840](https://github.com/jwilleke/yourphr/issues/840) — [FEATURE] System-wide audit log for the operator, ported from ngdpbase's AuditManager
 - [#817](https://github.com/jwilleke/yourphr/issues/817) — [BUG] SSRF guard misses NAT64, 6to4 and two IPv4 special ranges; LAN access switches the guard off entirely
 - [#816](https://github.com/jwilleke/yourphr/issues/816) — [BUG] 500s return the raw error message and log nothing
@@ -93,6 +99,9 @@ Open work in [jwilleke/yourphr](https://github.com/jwilleke/yourphr), ranked. Ge
 
 ## 🔵 In review
 
+- [#856](https://github.com/jwilleke/yourphr/issues/856) — [BUG] Admin → Database: the Integrity row always says "Not checked" — run the check in the background or remove the row
+- [#855](https://github.com/jwilleke/yourphr/issues/855) — [BUG] Admin → Database: search index status labels are unclear, and the help text is too small
+- [#854](https://github.com/jwilleke/yourphr/issues/854) — [FEATURE] Admin home: a Notifications panel, like ngdpbase's, with a link to where each one is fixed
 - [#823](https://github.com/jwilleke/yourphr/issues/823) — [security] ip-address — 4 open advisories in the frontend lockfile (medium)
 - [#822](https://github.com/jwilleke/yourphr/issues/822) — [security] engine.io — 1 open advisory in the frontend lockfile (high)
 - [#821](https://github.com/jwilleke/yourphr/issues/821) — [security] undici — 3 open advisories in the frontend lockfile (high)
@@ -107,4 +116,6 @@ Open work in [jwilleke/yourphr](https://github.com/jwilleke/yourphr), ranked. Ge
 
 ## ❓ Needs triage
 
-*None.*
+- [#867](https://github.com/jwilleke/yourphr/issues/867) — [BUG] The app database (spike.db) is not in WAL mode; SqliteDatabaseProvider never sets journal_mode
+- [#866](https://github.com/jwilleke/yourphr/issues/866) — [BUG] Applying a staged restore leaves the old -wal and -shm beside the restored database
+- [#865](https://github.com/jwilleke/yourphr/issues/865) — [BUG] Shutdown exits before the databases close: app.close() is not awaited on SIGTERM
